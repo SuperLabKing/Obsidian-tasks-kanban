@@ -921,41 +921,59 @@ class KanbanView extends BasesView {
                         const allDomCards = Array.from(this.boardEl.querySelectorAll('.kanban-card')) as HTMLElement[];
                         const selectedEls = allDomCards.filter(el => this.selectedCards.has(el.dataset.id!));
                         const count = selectedEls.length;
+                        // 最后一次被选中的卡片 id 为"顶层牌"，找不到则退回为被拖拽的卡片
+                        const topId = this.lastSelectedCardId && this.selectedCards.has(this.lastSelectedCardId)
+                            ? this.lastSelectedCardId : draggedId;
 
-                        // ① 创建跟随鼠标的浮动层（绝对定位于 body）
+                        // ① 创建跟随鼠标的浮动层，初始移出视口等第一次 dragover 再定位
                         const floatEl = document.createElement('div');
                         floatEl.style.cssText = [
-                            `width:${w}px`,
-                            `height:${h}px`,
-                            'position:fixed',
-                            'pointer-events:none',
-                            'z-index:10000',
-                            'top:0', 'left:0',
-                            // 初始位置移出视口，等第一次 drag 事件再定位
+                            `width:${w}px`, `height:${h}px`,
+                            'position:fixed', 'top:0', 'left:0',
+                            'pointer-events:none', 'z-index:10000',
                             'transform:translate(-9999px,-9999px)',
+                            'transition:opacity 0.3s ease',
                         ].join(';');
 
-                        // ② 叠层渲染：扇形发牌效果，底部卡片先渲染
-                        selectedEls.forEach((el, i) => {
-                            const clone = el.cloneNode(true) as HTMLElement;
-                            const isTop = i === count - 1;
-                            // 发牌时初始旋转角：底层偏左，顶层偏右，收拢到 0
-                            const initRotate = (i - (count - 1) / 2) * 8;
-                            const initTranslateY = Math.abs(i - (count - 1) / 2) * -4;
-                            clone.style.cssText = [
+                        // ② 非顶层牌：只渲染卡背（纯色矩形+边框，无内容），初始扇形展开
+                        //    顶层牌：完整克隆，完全不透明，渲染在最上层
+                        const nonTopEls = selectedEls.filter(el => el.dataset.id !== topId);
+                        const topEl = selectedEls.find(el => el.dataset.id === topId) || item;
+
+                        nonTopEls.forEach((_, i) => {
+                            const back = document.createElement('div');
+                            const center = (nonTopEls.length - 1) / 2;
+                            // 初始扇形角度：以中心为轴向两侧展开
+                            const initDeg = (i - center) * 14;
+                            const initTx = (i - center) * 10;
+                            back.style.cssText = [
                                 `width:${w}px`, `height:${h}px`,
                                 'position:absolute', 'top:0', 'left:0',
-                                `opacity:${isTop ? 0.95 : 0.55 + i * 0.08}`,
-                                'background:var(--background-primary)',
+                                'background:var(--background-secondary)',
                                 'border:2px solid var(--interactive-accent)',
-                                `box-shadow:0 ${4 + i * 2}px ${10 + i * 3}px rgba(0,0,0,0.18)`,
-                                'border-radius:6px', 'box-sizing:border-box', 'overflow:hidden',
-                                // 初始：展开（发牌状态）
-                                `transform:rotate(${initRotate}deg) translateY(${initTranslateY}px)`,
-                                'transition:transform 0.35s cubic-bezier(0.22,1,0.36,1), opacity 0.35s ease',
+                                `box-shadow:0 ${4 + i * 2}px ${10 + i * 2}px rgba(0,0,0,0.15)`,
+                                'border-radius:6px', 'box-sizing:border-box',
+                                `transform:rotate(${initDeg}deg) translateX(${initTx}px)`,
+                                'transition:transform 0.32s cubic-bezier(0.22,1,0.36,1)',
+                                `z-index:${i}`,
                             ].join(';');
-                            floatEl.appendChild(clone);
+                            floatEl.appendChild(back);
                         });
+
+                        // 顶层牌克隆（完整内容，无透明）
+                        const topClone = topEl.cloneNode(true) as HTMLElement;
+                        topClone.style.cssText = [
+                            `width:${w}px`, `height:${h}px`,
+                            'position:absolute', 'top:0', 'left:0',
+                            'background:var(--background-primary)',
+                            'border:2px solid var(--interactive-accent)',
+                            'box-shadow:0 8px 20px rgba(0,0,0,0.22)',
+                            'border-radius:6px', 'box-sizing:border-box', 'overflow:hidden',
+                            `z-index:${count}`,
+                            'transform:rotate(2deg)',
+                            'transition:transform 0.32s cubic-bezier(0.22,1,0.36,1)',
+                        ].join(';');
+                        floatEl.appendChild(topClone);
 
                         // 数量角标
                         const badge = document.createElement('div');
@@ -964,7 +982,8 @@ class KanbanView extends BasesView {
                             'background:var(--interactive-accent)', 'color:#fff',
                             'border-radius:50%', 'width:20px', 'height:20px',
                             'display:flex', 'align-items:center', 'justify-content:center',
-                            'font-size:11px', 'font-weight:700', 'z-index:1',
+                            'font-size:11px', 'font-weight:700',
+                            `z-index:${count + 1}`,
                             'box-shadow:0 2px 4px rgba(0,0,0,0.2)',
                         ].join(';');
                         badge.textContent = String(count);
@@ -973,35 +992,40 @@ class KanbanView extends BasesView {
                         document.body.appendChild(floatEl);
                         _multiFloatEl = floatEl;
 
-                        // ③ 收拢动画：短暂延迟后将所有克隆卡片 transform 归零（叠在一起）
+                        // ③ 收牌动画：两帧后将卡背 transition 到叠放状态（顶层牌保持 rotate(2deg)）
                         requestAnimationFrame(() => {
                             requestAnimationFrame(() => {
-                                const clones = floatEl.querySelectorAll('div:not(:last-child)') as NodeListOf<HTMLElement>;
-                                clones.forEach((clone: HTMLElement) => {
-                                    clone.style.transform = 'rotate(0deg) translateY(0px)';
+                                // floatEl 的子元素：[...卡背 × N-1], 顶层克隆, 角标
+                                const children = Array.from(floatEl.children) as HTMLElement[];
+                                const backs = children.slice(0, children.length - 2);
+                                backs.forEach((back: HTMLElement, i: number) => {
+                                    const center = (backs.length - 1) / 2;
+                                    back.style.transform = `rotate(${(i - center) * 1.5}deg) translate(${(i - center) * 2}px, 0)`;
                                 });
+                                // 顶层牌归正
+                                const topCard = children[children.length - 2];
+                                if (topCard) topCard.style.transform = 'rotate(2deg) translateY(0)';
                             });
                         });
 
-                        // ④ 监听 drag 事件实时移动浮动层（HTML5 drag 事件携带坐标）
-                        const onDrag = (e: DragEvent) => {
-                            if (e.clientX === 0 && e.clientY === 0) return; // 拖出窗口时忽略
+                        // ④ 鼠标追踪：使用 dragover（Electron/Chrome 中坐标始终有效）
+                        //    drag 事件在 Electron 中 clientX/Y 为 0，必须用 dragover
+                        const onDragOver = (e: DragEvent) => {
+                            e.preventDefault(); // 允许 drop，也保证事件持续触发
                             const x = e.clientX - _dragOffsetX;
                             const y = e.clientY - _dragOffsetY;
                             floatEl.style.transform = `translate(${x}px,${y}px)`;
                         };
-                        document.addEventListener('drag', onDrag);
+                        document.addEventListener('dragover', onDragOver);
 
-                        // ⑤ 其他选中的卡片变为半透明
-                        selectedEls.forEach(el => {
-                            if (el !== item) el.style.opacity = '0.25';
-                        });
+                        // ⑤ 选中的真实卡片：保留在 DOM 中但淡化（SortableJS 需要它们存在）
+                        selectedEls.forEach(el => { el.style.opacity = '0.2'; });
 
                         _multiFloatCleanup = () => {
-                            document.removeEventListener('drag', onDrag);
+                            document.removeEventListener('dragover', onDragOver);
                         };
 
-                        // ⑥ 为 SortableJS 提供一个透明占位图（避免浏览器默认拖拽幽灵）
+                        // ⑥ 透明 1×1 canvas 作为 HTML5 drag image，让浏览器不渲染系统幽灵
                         const transparentImg = document.createElement('canvas');
                         transparentImg.width = 1; transparentImg.height = 1;
                         document.body.appendChild(transparentImg);
@@ -1010,7 +1034,6 @@ class KanbanView extends BasesView {
                             nativeDragEvent.dataTransfer.effectAllowed = 'move';
                             nativeDragEvent.dataTransfer.setDragImage(transparentImg, 0, 0);
                         }
-                        // canvas 仅用于 setDragImage，之后立即移除
                         requestAnimationFrame(() => { if (transparentImg.parentNode) transparentImg.parentNode.removeChild(transparentImg); });
 
                     } else {
@@ -1042,26 +1065,35 @@ class KanbanView extends BasesView {
                 onEnd: async (evt: any) => {
                     this.boardEl.removeClass("is-dragging-card");
 
-                    // ✅ v1.0.1: 释放动画 — 多选浮动层展开后淡出（模拟发牌反向）
+                    // ✅ v1.0.1-beta.3: 释放动画 — 卡背扇形展开，floatEl 整体淡出
                     if (_multiFloatEl) {
                         const floatEl = _multiFloatEl;
-                        // 清理监听器
                         if (_multiFloatCleanup) { _multiFloatCleanup(); _multiFloatCleanup = null; }
 
-                        // 展开（发散）动画
-                        const clones = floatEl.querySelectorAll('div:not(:last-child)') as NodeListOf<HTMLElement>;
-                        const count = clones.length;
-                        clones.forEach((clone: HTMLElement, i: number) => {
-                            const finalRotate = (i - (count - 1) / 2) * 10;
-                            const finalY = (i - (count - 1) / 2) * -8;
-                            clone.style.transition = 'transform 0.3s cubic-bezier(0.22,1,0.36,1), opacity 0.3s ease';
-                            clone.style.transform = `rotate(${finalRotate}deg) translateY(${finalY}px)`;
-                            clone.style.opacity = '0';
+                        // 发牌：卡背展开，顶层牌轻微放大后淡出
+                        const children = Array.from(floatEl.children) as HTMLElement[];
+                        // 最后两个子元素：顶层克隆 + 角标，其余为卡背
+                        const backs = children.slice(0, children.length - 2);
+                        const topCard = children[children.length - 2];
+                        backs.forEach((back: HTMLElement, i: number) => {
+                            const center = (backs.length - 1) / 2;
+                            const finalDeg = (i - center) * 16;
+                            const finalTx = (i - center) * 12;
+                            back.style.transition = 'transform 0.28s cubic-bezier(0.22,1,0.36,1)';
+                            back.style.transform = `rotate(${finalDeg}deg) translateX(${finalTx}px)`;
                         });
-                        // 动画结束后移除
+                        if (topCard) {
+                            topCard.style.transition = 'transform 0.28s cubic-bezier(0.22,1,0.36,1)';
+                            topCard.style.transform = 'rotate(2deg) scale(1.04)';
+                        }
+                        // 整体淡出（比展开动画稍晚，让扇形展开先显现）
+                        setTimeout(() => {
+                            floatEl.style.transition = 'opacity 0.22s ease';
+                            floatEl.style.opacity = '0';
+                        }, 100);
                         setTimeout(() => {
                             if (floatEl.parentNode) floatEl.parentNode.removeChild(floatEl);
-                        }, 320);
+                        }, 340);
                         _multiFloatEl = null;
                     }
 

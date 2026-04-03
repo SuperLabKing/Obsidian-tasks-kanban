@@ -4279,42 +4279,61 @@ ${vcBody}` : fm;
               const allDomCards = Array.from(this.boardEl.querySelectorAll(".kanban-card"));
               const selectedEls = allDomCards.filter((el) => this.selectedCards.has(el.dataset.id));
               const count = selectedEls.length;
+              const topId = this.lastSelectedCardId && this.selectedCards.has(this.lastSelectedCardId) ? this.lastSelectedCardId : draggedId;
               const floatEl = document.createElement("div");
               floatEl.style.cssText = [
                 `width:${w}px`,
                 `height:${h}px`,
                 "position:fixed",
-                "pointer-events:none",
-                "z-index:10000",
                 "top:0",
                 "left:0",
-                // 初始位置移出视口，等第一次 drag 事件再定位
-                "transform:translate(-9999px,-9999px)"
+                "pointer-events:none",
+                "z-index:10000",
+                "transform:translate(-9999px,-9999px)",
+                "transition:opacity 0.3s ease"
               ].join(";");
-              selectedEls.forEach((el, i) => {
-                const clone2 = el.cloneNode(true);
-                const isTop = i === count - 1;
-                const initRotate = (i - (count - 1) / 2) * 8;
-                const initTranslateY = Math.abs(i - (count - 1) / 2) * -4;
-                clone2.style.cssText = [
+              const nonTopEls = selectedEls.filter((el) => el.dataset.id !== topId);
+              const topEl = selectedEls.find((el) => el.dataset.id === topId) || item;
+              nonTopEls.forEach((_, i) => {
+                const back = document.createElement("div");
+                const center = (nonTopEls.length - 1) / 2;
+                const initDeg = (i - center) * 14;
+                const initTx = (i - center) * 10;
+                back.style.cssText = [
                   `width:${w}px`,
                   `height:${h}px`,
                   "position:absolute",
                   "top:0",
                   "left:0",
-                  `opacity:${isTop ? 0.95 : 0.55 + i * 0.08}`,
-                  "background:var(--background-primary)",
+                  "background:var(--background-secondary)",
                   "border:2px solid var(--interactive-accent)",
-                  `box-shadow:0 ${4 + i * 2}px ${10 + i * 3}px rgba(0,0,0,0.18)`,
+                  `box-shadow:0 ${4 + i * 2}px ${10 + i * 2}px rgba(0,0,0,0.15)`,
                   "border-radius:6px",
                   "box-sizing:border-box",
-                  "overflow:hidden",
-                  // 初始：展开（发牌状态）
-                  `transform:rotate(${initRotate}deg) translateY(${initTranslateY}px)`,
-                  "transition:transform 0.35s cubic-bezier(0.22,1,0.36,1), opacity 0.35s ease"
+                  `transform:rotate(${initDeg}deg) translateX(${initTx}px)`,
+                  "transition:transform 0.32s cubic-bezier(0.22,1,0.36,1)",
+                  `z-index:${i}`
                 ].join(";");
-                floatEl.appendChild(clone2);
+                floatEl.appendChild(back);
               });
+              const topClone = topEl.cloneNode(true);
+              topClone.style.cssText = [
+                `width:${w}px`,
+                `height:${h}px`,
+                "position:absolute",
+                "top:0",
+                "left:0",
+                "background:var(--background-primary)",
+                "border:2px solid var(--interactive-accent)",
+                "box-shadow:0 8px 20px rgba(0,0,0,0.22)",
+                "border-radius:6px",
+                "box-sizing:border-box",
+                "overflow:hidden",
+                `z-index:${count}`,
+                "transform:rotate(2deg)",
+                "transition:transform 0.32s cubic-bezier(0.22,1,0.36,1)"
+              ].join(";");
+              floatEl.appendChild(topClone);
               const badge = document.createElement("div");
               badge.style.cssText = [
                 "position:absolute",
@@ -4330,7 +4349,7 @@ ${vcBody}` : fm;
                 "justify-content:center",
                 "font-size:11px",
                 "font-weight:700",
-                "z-index:1",
+                `z-index:${count + 1}`,
                 "box-shadow:0 2px 4px rgba(0,0,0,0.2)"
               ].join(";");
               badge.textContent = String(count);
@@ -4339,26 +4358,29 @@ ${vcBody}` : fm;
               _multiFloatEl = floatEl;
               requestAnimationFrame(() => {
                 requestAnimationFrame(() => {
-                  const clones = floatEl.querySelectorAll("div:not(:last-child)");
-                  clones.forEach((clone2) => {
-                    clone2.style.transform = "rotate(0deg) translateY(0px)";
+                  const children = Array.from(floatEl.children);
+                  const backs = children.slice(0, children.length - 2);
+                  backs.forEach((back, i) => {
+                    const center = (backs.length - 1) / 2;
+                    back.style.transform = `rotate(${(i - center) * 1.5}deg) translate(${(i - center) * 2}px, 0)`;
                   });
+                  const topCard = children[children.length - 2];
+                  if (topCard)
+                    topCard.style.transform = "rotate(2deg) translateY(0)";
                 });
               });
-              const onDrag = (e) => {
-                if (e.clientX === 0 && e.clientY === 0)
-                  return;
+              const onDragOver = (e) => {
+                e.preventDefault();
                 const x = e.clientX - _dragOffsetX;
                 const y = e.clientY - _dragOffsetY;
                 floatEl.style.transform = `translate(${x}px,${y}px)`;
               };
-              document.addEventListener("drag", onDrag);
+              document.addEventListener("dragover", onDragOver);
               selectedEls.forEach((el) => {
-                if (el !== item)
-                  el.style.opacity = "0.25";
+                el.style.opacity = "0.2";
               });
               _multiFloatCleanup = () => {
-                document.removeEventListener("drag", onDrag);
+                document.removeEventListener("dragover", onDragOver);
               };
               const transparentImg = document.createElement("canvas");
               transparentImg.width = 1;
@@ -4410,19 +4432,28 @@ ${vcBody}` : fm;
                 _multiFloatCleanup();
                 _multiFloatCleanup = null;
               }
-              const clones = floatEl.querySelectorAll("div:not(:last-child)");
-              const count = clones.length;
-              clones.forEach((clone2, i) => {
-                const finalRotate = (i - (count - 1) / 2) * 10;
-                const finalY = (i - (count - 1) / 2) * -8;
-                clone2.style.transition = "transform 0.3s cubic-bezier(0.22,1,0.36,1), opacity 0.3s ease";
-                clone2.style.transform = `rotate(${finalRotate}deg) translateY(${finalY}px)`;
-                clone2.style.opacity = "0";
+              const children = Array.from(floatEl.children);
+              const backs = children.slice(0, children.length - 2);
+              const topCard = children[children.length - 2];
+              backs.forEach((back, i) => {
+                const center = (backs.length - 1) / 2;
+                const finalDeg = (i - center) * 16;
+                const finalTx = (i - center) * 12;
+                back.style.transition = "transform 0.28s cubic-bezier(0.22,1,0.36,1)";
+                back.style.transform = `rotate(${finalDeg}deg) translateX(${finalTx}px)`;
               });
+              if (topCard) {
+                topCard.style.transition = "transform 0.28s cubic-bezier(0.22,1,0.36,1)";
+                topCard.style.transform = "rotate(2deg) scale(1.04)";
+              }
+              setTimeout(() => {
+                floatEl.style.transition = "opacity 0.22s ease";
+                floatEl.style.opacity = "0";
+              }, 100);
               setTimeout(() => {
                 if (floatEl.parentNode)
                   floatEl.parentNode.removeChild(floatEl);
-              }, 320);
+              }, 340);
               _multiFloatEl = null;
             }
             evt.item.style.opacity = "";
