@@ -1048,8 +1048,9 @@ class KanbanView extends BasesView {
                         };
                         document.addEventListener('dragover', onDragOver, { passive: false });
 
-                        // ⑤ 选中的真实卡片：隐藏（opacity:0），SortableJS 仍需要它们在 DOM 中占位
-                        selectedEls.forEach(el => { el.style.opacity = '0'; });
+                        // ⑤ 选中的真实卡片：保持可见，SortableJS 仍需要它们在 DOM 中占位
+                        // ✅ v1.0.1-beta: 移除拖动时的透明化效果
+                        // selectedEls.forEach(el => { el.style.opacity = '0'; });
 
                         _multiFloatCleanup = () => {
                             document.removeEventListener('dragover', onDragOver);
@@ -1090,8 +1091,8 @@ class KanbanView extends BasesView {
                         }
                     }
 
-                    // 主卡片半透明（让 ghost 占位符可见）
-                    item.style.opacity = '0.4';
+                    // ✅ v1.0.1-beta: 移除拖动时的透明化效果，保持卡片原样式
+                    // item.style.opacity = '0.4';
                 },
                 onEnd: async (evt: any) => {
                     this.boardEl.removeClass("is-dragging-card");

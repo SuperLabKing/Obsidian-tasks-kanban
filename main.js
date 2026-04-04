@@ -4394,9 +4394,6 @@ ${vcBody}` : fm;
                 });
               };
               document.addEventListener("dragover", onDragOver, { passive: false });
-              selectedEls.forEach((el) => {
-                el.style.opacity = "0";
-              });
               _multiFloatCleanup = () => {
                 document.removeEventListener("dragover", onDragOver);
                 _rafPending = false;
@@ -4441,7 +4438,6 @@ ${vcBody}` : fm;
                 nativeDragEvent.dataTransfer.setDragImage(dragImageEl, _dragOffsetX, _dragOffsetY);
               }
             }
-            item.style.opacity = "0.4";
           },
           onEnd: async (evt) => {
             this.boardEl.removeClass("is-dragging-card");
