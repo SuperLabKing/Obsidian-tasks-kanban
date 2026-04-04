@@ -66,10 +66,11 @@ export interface PluginSettings {
   hiddenColumns: Record<string, string[]>;
 
   // 动画与视觉
-  progressBarDisplay: string;       // none | simple | animated
-  progressBarColor: string;         // hex 颜色，默认跟随主题
-  progressBarAnimStyle: string;     // stripes | shine | pulse（animated 时）
-  progressBarSpeed: number;         // 动画频率 0.1~2.0 秒（越小越快）
+  progressBarDisplay: string;           // none | simple | animated
+  progressBarColor: string;             // hex 颜色，默认跟随主题
+  progressBarAnimStyle: string;         // stripes | shine | pulse（animated 时）
+  progressBarSpeed: number;             // 动画频率 0.1~2.0 秒（越小越快）
+  progressBarTransitionDuration: number; // 进度条变化速度 0.1~2.0 秒（宽度动画）
   pinnedDisplayAnimation: string;   // slide | fade | scale
   styleCompletedCards: boolean;
   fadeBackground: boolean;          // 拖拽时突出选中（其他内容淡化）
@@ -161,7 +162,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   progressBarDisplay: "animated",
   progressBarColor: "",
   progressBarAnimStyle: "stripes",
-  progressBarSpeed: 0.9,
+  progressBarSpeed: 1.0,
+  progressBarTransitionDuration: 0.5,
   pinnedDisplayAnimation: "slide",
   styleCompletedCards: false,
   fadeBackground: true,
@@ -450,6 +452,15 @@ export class TaskKanbanSettingTab extends PluginSettingTab {
           .onChange(async v => { s.progressBarSpeed = v; await save(true); }))
         .addExtraButton(btn => btn.setIcon("reset").setTooltip("重置为 1.0 秒").onClick(async () => {
           s.progressBarSpeed = 1.0; await save(true); this.display();
+        }));
+
+      new Setting(sg)
+        .setName("进度条变化速度")
+        .setDesc("卡片数量变化时进度条宽度的过渡时长，数值越小变化越快（0.1 ~ 2.0 秒）。")
+        .addSlider(sl => sl.setLimits(0.1, 2.0, 0.1).setValue(s.progressBarTransitionDuration ?? 0.5).setDynamicTooltip()
+          .onChange(async v => { s.progressBarTransitionDuration = v; await save(true); }))
+        .addExtraButton(btn => btn.setIcon("reset").setTooltip("重置为 0.5 秒").onClick(async () => {
+          s.progressBarTransitionDuration = 0.5; await save(true); this.display();
         }));
     }
 

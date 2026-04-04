@@ -409,6 +409,7 @@ class KanbanView extends BasesView {
   selectedCards: Set<string> = new Set();
   lastSelectedCardId: string | null = null;
   private _dragOriginalOrder: string[] = []; // 保存拖拽前的原始顺序
+  private _savedProgress: Record<string, number> = {}; // 保存重建前的进度条宽度，用于平滑过渡
 
   constructor(controller: any, scrollEl: HTMLElement, plugin: TaskKanbanPlugin) { super(controller); this.plugin = plugin; this.containerEl = scrollEl.createDiv("kanban-view-container"); }
 
@@ -445,6 +446,18 @@ class KanbanView extends BasesView {
         if (this.boardEl) {
             this.savedScroll.boardX = this.boardEl.scrollLeft; this.savedScroll.boardY = this.boardEl.scrollTop;
             this.boardEl.querySelectorAll(".kanban-column-content, .kanban-pinned-wrapper").forEach(el => { const colId = (el as HTMLElement).dataset.colId; if (colId) this.savedScroll.columns[colId] = el.scrollTop; });
+            // 重建前快照每列进度条的「当前渲染位置」（而非 style.width 目标值）
+            // 用 getBoundingClientRect 捕获动画进行中的真实像素宽度，再换算为百分比
+            // 这样新 DOM 的起点 = 旧 DOM 的视觉终点，实现跨重建的无缝接力
+            this.boardEl.querySelectorAll('.kanban-column[data-col-id]').forEach(col => {
+                const colId = (col as HTMLElement).dataset.colId!;
+                const fill = col.querySelector('.kanban-column-progress-fill') as HTMLElement;
+                if (!fill) return;
+                const bg = fill.parentElement as HTMLElement;
+                const bgW = bg?.getBoundingClientRect().width || 0;
+                const fillW = fill.getBoundingClientRect().width;
+                this._savedProgress[colId] = bgW > 0 ? (fillW / bgW * 100) : (parseFloat(fill.style.width) || 0);
+            });
         }
         this.containerEl.empty(); this.sortables.forEach(s => { try { s.destroy(); } catch(e){} }); this.sortables = [];
         this.containerEl.style.setProperty("--kanban-column-width", `${this.plugin.settings.columnWidths || 280}px`);
@@ -563,7 +576,22 @@ class KanbanView extends BasesView {
             const allCards = columnEl.querySelectorAll('.kanban-card:not(.kanban-card-ghost)'); let comp = 0;
             allCards.forEach(c => { if (c.classList.contains('is-completed')) comp++; });
             const countEl = columnEl.querySelector('.kanban-column-count') as HTMLElement; if (countEl) countEl.textContent = `${comp} / ${allCards.length}`;
-            const fill = columnEl.querySelector('.kanban-column-progress-fill') as HTMLElement; if (fill) fill.style.width = allCards.length === 0 ? '0%' : `${(comp / allCards.length * 100).toFixed(1)}%`;
+            const fill = columnEl.querySelector('.kanban-column-progress-fill') as HTMLElement;
+            if (fill) {
+                const targetPct = allCards.length === 0 ? 0 : (comp / allCards.length * 100);
+                // 捕获当前真实渲染位置（动画可能还在进行中），作为过渡起点
+                const bg = fill.parentElement as HTMLElement;
+                const bgW = bg?.getBoundingClientRect().width || 0;
+                const currentPct = bgW > 0
+                    ? (fill.getBoundingClientRect().width / bgW * 100)
+                    : (parseFloat(fill.style.width) || 0);
+                // 以真实渲染位置为起点，强制重排后启动新动画
+                fill.style.transition = 'none';
+                fill.style.width = `${currentPct.toFixed(1)}%`;
+                void fill.offsetWidth;
+                fill.style.transition = '';
+                fill.style.width = `${targetPct.toFixed(1)}%`;
+            }
         };
 
         const toolbarEl = this.containerEl.createDiv("kanban-toolbar");
@@ -598,7 +626,16 @@ class KanbanView extends BasesView {
                     menu.addItem((item: any) => {
                         item.setTitle(view.name);
                         if (group.id === settings.currentGroupId && view.id === group.currentSubViewId) {
-                            item.setIcon("check");
+                            // 将勾号追加到文字之后（Obsidian setIcon 固定放在文字前，故手动操作 DOM）
+                            setTimeout(() => {
+                                const titleEl = item.dom?.querySelector('.menu-item-title');
+                                if (titleEl && !titleEl.querySelector('.kanban-check-suffix')) {
+                                    const ck = document.createElement('span');
+                                    ck.className = 'kanban-check-suffix';
+                                    ck.textContent = ' ✓';
+                                    titleEl.appendChild(ck);
+                                }
+                            }, 0);
                         }
                         item.onClick(async () => {
                             this.plugin.settings.currentGroupId = group.id;
@@ -624,6 +661,11 @@ class KanbanView extends BasesView {
             });
 
             menu.showAtMouseEvent(e);
+            // 让菜单宽度随内容自适应，消除多余空白
+            setTimeout(() => {
+                const dom = (menu as any).dom as HTMLElement;
+                if (dom) { dom.style.minWidth = '0'; dom.style.width = 'fit-content'; }
+            }, 0);
         };
 
         const toolbarActions = toolbarEl.createDiv("kanban-toolbar-actions");
@@ -793,10 +835,10 @@ class KanbanView extends BasesView {
         if (settings.styleCompletedCards) this.boardEl.addClass("bkv-style-completed");
         if (this.isArchivedView) this.boardEl.addClass("is-archived-view");
         if (isDragLocked) this.boardEl.addClass("is-drag-locked");
-        // ✅ v1.0.15: 注入进度条颜色/速度/动画样式 CSS 变量
-        // progressBarDisplay 现在直接存储动画类型（none/simple/stripes/shine/both/pulse）
+        // ✅ v1.0.4: 注入进度条颜色/速度/变化速度/动画样式 CSS 变量
         if (settings.progressBarColor) this.boardEl.style.setProperty("--kanban-progress-color", settings.progressBarColor);
-        this.boardEl.style.setProperty("--kanban-progress-speed", `${settings.progressBarSpeed || 0.9}s`);
+        this.boardEl.style.setProperty("--kanban-progress-speed", `${settings.progressBarSpeed || 1.0}s`);
+        this.boardEl.style.setProperty("--kanban-progress-transition-duration", `${settings.progressBarTransitionDuration ?? 0.5}s`);
         // 兼容旧版 animated 值
         const _animStyle = settings.progressBarDisplay === "animated" ? (settings.progressBarAnimStyle || "stripes") : settings.progressBarDisplay;
         if (_animStyle && _animStyle !== "none" && _animStyle !== "simple") {
@@ -807,6 +849,10 @@ class KanbanView extends BasesView {
         if (settings.animationStyle === "bouncy") easingCurve = "cubic-bezier(0.175, 0.885, 0.32, 1.275)";
         if (settings.animationStyle === "snappy") easingCurve = "cubic-bezier(0.2, 1, 0.2, 1)";
         if (settings.animationStyle === "linear") easingCurve = "linear";
+        // 进度条宽度过渡跟随动画风格（在 easingCurve 确定后注入）
+        const _progressDuration = settings.animationDuration ? `${Math.max(1200, settings.animationDuration * 4)}ms` : '1500ms';
+        this.boardEl.style.setProperty("--kanban-progress-transition-duration", _progressDuration);
+        this.boardEl.style.setProperty("--kanban-progress-transition-easing", easingCurve);
 
         const globalStyles = settings.globalMetaStyles || {};
 
@@ -1055,6 +1101,7 @@ class KanbanView extends BasesView {
             cardEl.onkeydown = (e: KeyboardEvent) => { if ((e.key === " " || e.key === "Enter") && document.activeElement !== cardTitleEl && card.type === 'file') { e.preventDefault(); checkbox.checked = !checkbox.checked; checkbox.dispatchEvent(new Event("change")); } };
         };
 
+
         const initSortable = (container: HTMLElement) => {
             const sortable = new Sortable(container, {
                 group: 'shared',
@@ -1099,9 +1146,10 @@ class KanbanView extends BasesView {
                     // ✅ v1.0.3: 强制原始卡片保持完全不透明
                     item.style.setProperty('opacity', '1', 'important');
 
-                    // ✅ v1.0.3: 自定义 fallback 元素，整合堆叠效果
-                    // SortableJS 会在 onStart 后立即查找 .sortable-fallback 元素
-                    // 我们需要在下一帧修改它
+                    // ✅ 自定义 fallback 元素，整合堆叠效果
+                    // SortableJS 在 onStart 后立即创建 .kanban-card-fallback 并以 position:fixed 跟随鼠标，
+                    // 但其初始定位基于卡片左上角，与实际点击位置存在偏差。
+                    // 我们在下一帧修正 top/left，使其以鼠标点击位置为锚点自然出现。
                     requestAnimationFrame(() => {
                         const fallback = document.querySelector('.kanban-card-fallback') as HTMLElement;
                         if (!fallback) return;
@@ -1116,58 +1164,65 @@ class KanbanView extends BasesView {
                             const topEl = selectedEls.find(el => el.dataset.id === topId) || item;
                             const nonTopEls = selectedEls.filter(el => el.dataset.id !== topId);
 
-                            // 清空 fallback 并重建为堆叠容器
+                            const w = item.offsetWidth;
+                            const h = item.offsetHeight;
+
+                            // 保留 SortableJS 的 position/top/left，只清空内部内容并重设尺寸
+                            fallback.style.width = `${w}px`;
+                            fallback.style.height = `${h}px`;
+                            fallback.style.overflow = 'visible';
+                            fallback.style.opacity = '1';
+                            fallback.style.pointerEvents = 'none';
                             fallback.innerHTML = '';
-                            fallback.style.cssText = [
-                                `width:${item.offsetWidth}px`,
-                                `height:${item.offsetHeight}px`,
+
+                            // 内部相对包装层，所有堆叠元素都挂在这里
+                            const wrapper = document.createElement('div');
+                            wrapper.style.cssText = [
+                                `width:${w}px`,
+                                `height:${h}px`,
                                 'position:relative',
-                                'opacity:1 !important',
-                                'pointer-events:none',
+                                'overflow:visible',
                             ].join(';');
 
-                            // 添加卡背（从下往上）
-                            nonTopEls.forEach((srcEl, i) => {
+                            // 卡背（从最下层往上叠）
+                            nonTopEls.forEach((_, i) => {
                                 const back = document.createElement('div');
-                                const stackDy = (i + 1) * 5;
-                                const backZ = count - 1 - i;
                                 back.style.cssText = [
-                                    `width:${item.offsetWidth}px`,
-                                    `height:${item.offsetHeight}px`,
+                                    `width:${w}px`,
+                                    `height:${h}px`,
                                     'position:absolute',
                                     'top:0',
                                     'left:0',
                                     'background:var(--background-primary)',
-                                    'border:2px solid var(--interactive-accent)',
-                                    `box-shadow:0 ${2 + i}px ${6 + i * 2}px rgba(0,0,0,0.12)`,
+                                    'border:1px solid var(--interactive-accent)',
+                                    `box-shadow:0 ${2 + i}px ${6 + i * 2}px rgba(0,0,0,0.1)`,
                                     'border-radius:6px',
                                     'box-sizing:border-box',
-                                    `transform:translateY(${stackDy}px)`,
-                                    `z-index:${backZ}`,
+                                    `transform:translate(${(i + 1) * 3}px, ${(i + 1) * 4}px)`,
+                                    `z-index:${count - 1 - i}`,
                                 ].join(';');
-                                fallback.appendChild(back);
+                                wrapper.appendChild(back);
                             });
 
-                            // 添加顶层牌克隆
+                            // 顶层卡克隆
                             const topClone = topEl.cloneNode(true) as HTMLElement;
                             topClone.style.cssText = [
-                                `width:${item.offsetWidth}px`,
-                                `height:${item.offsetHeight}px`,
+                                `width:${w}px`,
+                                `height:${h}px`,
                                 'position:absolute',
                                 'top:0',
                                 'left:0',
                                 'background:var(--background-primary)',
-                                'border:2px solid var(--interactive-accent)',
-                                'box-shadow:0 8px 20px rgba(0,0,0,0.22)',
+                                'border:1px solid var(--interactive-accent)',
+                                'box-shadow:0 6px 18px rgba(0,0,0,0.2)',
                                 'border-radius:6px',
                                 'box-sizing:border-box',
                                 'overflow:hidden',
-                                'opacity:1 !important',
                                 `z-index:${count}`,
                             ].join(';');
-                            fallback.appendChild(topClone);
+                            wrapper.appendChild(topClone);
 
-                            // 添加数量角标
+                            // 数量角标
                             const badge = document.createElement('div');
                             badge.style.cssText = [
                                 'position:absolute',
@@ -1187,15 +1242,34 @@ class KanbanView extends BasesView {
                                 'box-shadow:0 2px 4px rgba(0,0,0,0.2)',
                             ].join(';');
                             badge.textContent = String(count);
-                            fallback.appendChild(badge);
+                            wrapper.appendChild(badge);
+
+                            fallback.appendChild(wrapper);
 
                             // 强制所有选中卡片保持不透明
                             selectedEls.forEach(el => {
                                 el.style.setProperty('opacity', '1', 'important');
                             });
                         } else {
-                            // 单选：确保 fallback 完全不透明
-                            fallback.style.setProperty('opacity', '1', 'important');
+                            // 单选：消除拖拽触发瞬间 ghost 出现在错误位置的跳变
+                            // 原因：SortableJS ghost 初始定位在卡片 rect，delay 期间鼠标已移动，
+                            // 第一次 mousemove 才会通过 transform 修正到正确位置，这之间有一帧偏差。
+                            // 解法：先让 ghost 完全透明，等 SortableJS 写入第一个 transform（已对齐鼠标）
+                            // 后再显示，消除视觉跳变。
+                            fallback.style.opacity = '0';
+                            const showWhenAligned = new MutationObserver(() => {
+                                const t = fallback.style.transform;
+                                if (t && t !== 'none' && t !== '') {
+                                    fallback.style.setProperty('opacity', '1', 'important');
+                                    showWhenAligned.disconnect();
+                                }
+                            });
+                            showWhenAligned.observe(fallback, { attributes: true, attributeFilter: ['style'] });
+                            // 兜底：200ms 后若仍未显示（鼠标静止未触发 transform）则强制显示
+                            setTimeout(() => {
+                                showWhenAligned.disconnect();
+                                fallback.style.setProperty('opacity', '1', 'important');
+                            }, 200);
                         }
                     });
                 },
@@ -1393,13 +1467,19 @@ class KanbanView extends BasesView {
 
             if (pBarDisplay !== "none" && !isProgressSync) {
                 const progressWrapper = headerEl.createDiv("kanban-column-progress-wrapper"); const progressBg = progressWrapper.createDiv("kanban-column-progress-bg"); const progressFill = progressBg.createDiv("kanban-column-progress-fill");
-                // ✅ v1.0.15: 兼容新进度条配置——animated 旧值或直接为动画类型名时均添加 is-animated
                 if (pBarDisplay === "animated" || (pBarDisplay !== "simple" && pBarDisplay !== "none")) progressFill.addClass("is-animated");
-                const initPercent = allCards.length === 0 ? 0 : Math.round((compCount / allCards.length) * 100);
+                const targetPercent = allCards.length === 0 ? 0 : (compCount / allCards.length * 100);
+                // 视觉接力：从上一次渲染的宽度出发，无缝衔接动画
+                const prevPercent = this._savedProgress[colName] ?? targetPercent;
+                // ① 锁定起始位置：关闭 transition，将新节点的宽度硬设为旧值
                 progressFill.style.transition = 'none';
-                progressFill.style.width = `${initPercent}%`;
-                progressFill.getBoundingClientRect();
+                progressFill.style.width = `${prevPercent}%`;
+                // ② 强制重排：让浏览器同步计算布局，将上面的"旧宽度"真正提交到渲染树
+                //    这是让新 DOM 节点拥有有效起始锚点的唯一可靠方法
+                void progressFill.offsetWidth;
+                // ③ 释放动画：恢复 CSS transition，推入目标宽度，浏览器从旧值平滑过渡到新值
                 progressFill.style.transition = '';
+                progressFill.style.width = `${targetPercent.toFixed(1)}%`;
             }
 
             const drawerWrap = headerEl.createDiv("kanban-column-drawer-wrap");
@@ -1625,7 +1705,8 @@ export default class TaskKanbanPlugin extends Plugin {
     if (!this.settings.stageValues) this.settings.stageValues = [];
     if (this.settings.progressBarColor === undefined) this.settings.progressBarColor = "";
     if (!this.settings.progressBarAnimStyle) this.settings.progressBarAnimStyle = "stripes";
-    if (!this.settings.progressBarSpeed) this.settings.progressBarSpeed = 0.9;
+    if (!this.settings.progressBarSpeed) this.settings.progressBarSpeed = 1.0;
+    if (this.settings.progressBarTransitionDuration === undefined) this.settings.progressBarTransitionDuration = 0.5;
     if (!this.settings.ghostBorderStyle) this.settings.ghostBorderStyle = "dashed";
     if (!this.settings.orderBadgeStyle) this.settings.orderBadgeStyle = "hash";
 

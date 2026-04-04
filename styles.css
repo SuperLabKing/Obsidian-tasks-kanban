@@ -192,8 +192,9 @@
     height: 100%;
     background-color: var(--kanban-progress-color, var(--interactive-accent));
     border-radius: 4px;
-    transition: width 0.45s cubic-bezier(0.25, 1, 0.5, 1);
+    transition: width var(--kanban-progress-transition-duration, 0.5s) var(--kanban-progress-transition-easing, cubic-bezier(0.25, 1, 0.5, 1));
     overflow: hidden;
+    will-change: width;
 }
 /* ── 条纹（stripes / both）*/
 .kanban-board[data-progress-anim="stripes"] .kanban-column-progress-fill.is-animated::before,
