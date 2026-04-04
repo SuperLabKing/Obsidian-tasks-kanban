@@ -4248,8 +4248,9 @@ ${vcBody}` : fm;
           group: "shared",
           animation: settings.animationDuration,
           easing: easingCurve,
-          // ✅ v1.0.1: 使用原生 HTML5 拖拽避免坐标系错位
-          forceFallback: false,
+          // ✅ v1.0.1-beta: 优化拖动性能 - 使用 fallback 模式避免原生拖拽的卡顿
+          forceFallback: true,
+          fallbackTolerance: 3,
           scroll: true,
           scrollSensitivity: 80,
           scrollSpeed: 15,

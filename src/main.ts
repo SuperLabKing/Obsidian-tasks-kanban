@@ -892,12 +892,20 @@ class KanbanView extends BasesView {
 
         const initSortable = (container: HTMLElement) => {
             const sortable = new Sortable(container, {
-                group: 'shared', animation: settings.animationDuration, easing: easingCurve,
-                // ✅ v1.0.1: 使用原生 HTML5 拖拽避免坐标系错位
-                forceFallback: false,
-                scroll: true, scrollSensitivity: 80, scrollSpeed: 15,
-                filter: ".kanban-card-checkbox, .kanban-card-title, .kanban-card-menu-btn, .kanban-card-open-btn", preventOnFilter: false,
-                delay: settings.dragDelay, delayOnTouchOnly: false, disabled: isDragLocked,
+                group: 'shared',
+                animation: settings.animationDuration,
+                easing: easingCurve,
+                // ✅ v1.0.1-beta: 优化拖动性能 - 使用 fallback 模式避免原生拖拽的卡顿
+                forceFallback: true,
+                fallbackTolerance: 3,
+                scroll: true,
+                scrollSensitivity: 80,
+                scrollSpeed: 15,
+                filter: ".kanban-card-checkbox, .kanban-card-title, .kanban-card-menu-btn, .kanban-card-open-btn",
+                preventOnFilter: false,
+                delay: settings.dragDelay,
+                delayOnTouchOnly: false,
+                disabled: isDragLocked,
                 ghostClass: 'kanban-card-ghost',
                 chosenClass: 'kanban-card-chosen',
                 dragClass: 'kanban-card-dragging',
