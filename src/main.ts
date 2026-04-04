@@ -919,11 +919,14 @@ class KanbanView extends BasesView {
                     const w = item.offsetWidth;
                     const h = item.offsetHeight;
 
-                    // ✅ v1.0.1-beta: 立即强制移除 SortableJS 添加的内联透明度样式
-                    item.style.opacity = '1';
-                    this.boardEl.querySelectorAll('.kanban-card').forEach((el: Element) => {
-                        (el as HTMLElement).style.opacity = '1';
-                    });
+                    // ✅ v1.0.1-beta: 持续强制移除 SortableJS 添加的内联透明度样式
+                    const opacityInterval = setInterval(() => {
+                        item.style.opacity = '1';
+                        this.boardEl.querySelectorAll('.kanban-card').forEach((el: Element) => {
+                            (el as HTMLElement).style.opacity = '1';
+                        });
+                    }, 16); // 每帧检查一次
+                    (item as any)._opacityInterval = opacityInterval;
 
                     // ✅ v1.0.1-beta: 保存多选卡片的原始顺序（在拖拽前）
                     if (isMultiDrag) {
@@ -1121,6 +1124,13 @@ class KanbanView extends BasesView {
                     // item.style.opacity = '0.4';
                 },
                 onEnd: async (evt: any) => {
+                    // 清理透明度强制覆盖定时器
+                    const item = evt.item as HTMLElement;
+                    if ((item as any)._opacityInterval) {
+                        clearInterval((item as any)._opacityInterval);
+                        delete (item as any)._opacityInterval;
+                    }
+
                     this.boardEl.removeClass("is-dragging-card");
 
                     // ✅ v1.0.2: 发牌动画 — 卡背依次向下滑出（上下方向），整体淡出

@@ -4270,10 +4270,13 @@ ${vcBody}` : fm;
             const isMultiDrag = draggedId && this.selectedCards.has(draggedId) && this.selectedCards.size > 1;
             const w = item.offsetWidth;
             const h = item.offsetHeight;
-            item.style.opacity = "1";
-            this.boardEl.querySelectorAll(".kanban-card").forEach((el) => {
-              el.style.opacity = "1";
-            });
+            const opacityInterval = setInterval(() => {
+              item.style.opacity = "1";
+              this.boardEl.querySelectorAll(".kanban-card").forEach((el) => {
+                el.style.opacity = "1";
+              });
+            }, 16);
+            item._opacityInterval = opacityInterval;
             if (isMultiDrag) {
               const fromContainer = evt.from;
               const allCardsInFrom = Array.from(fromContainer.querySelectorAll(".kanban-card"));
@@ -4452,6 +4455,11 @@ ${vcBody}` : fm;
             }
           },
           onEnd: async (evt) => {
+            const item = evt.item;
+            if (item._opacityInterval) {
+              clearInterval(item._opacityInterval);
+              delete item._opacityInterval;
+            }
             this.boardEl.removeClass("is-dragging-card");
             if (_multiFloatEl) {
               const floatEl = _multiFloatEl;
