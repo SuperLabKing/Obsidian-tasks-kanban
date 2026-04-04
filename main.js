@@ -4248,9 +4248,8 @@ ${vcBody}` : fm;
           group: "shared",
           animation: settings.animationDuration,
           easing: easingCurve,
-          // ✅ v1.0.1-beta: 优化拖动性能 - 使用 fallback 模式避免原生拖拽的卡顿
-          forceFallback: true,
-          fallbackTolerance: 3,
+          // ✅ v1.0.1-beta: 使用原生 HTML5 拖拽，配合自定义浮动层实现流畅拖动
+          forceFallback: false,
           scroll: true,
           scrollSensitivity: 80,
           scrollSpeed: 15,
@@ -4420,7 +4419,6 @@ ${vcBody}` : fm;
                 "position:fixed",
                 "top:-9999px",
                 "left:-9999px",
-                "opacity:0.9",
                 "pointer-events:none",
                 "z-index:9999",
                 "background:var(--background-primary)",

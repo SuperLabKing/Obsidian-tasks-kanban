@@ -895,9 +895,8 @@ class KanbanView extends BasesView {
                 group: 'shared',
                 animation: settings.animationDuration,
                 easing: easingCurve,
-                // ✅ v1.0.1-beta: 优化拖动性能 - 使用 fallback 模式避免原生拖拽的卡顿
-                forceFallback: true,
-                fallbackTolerance: 3,
+                // ✅ v1.0.1-beta: 使用原生 HTML5 拖拽，配合自定义浮动层实现流畅拖动
+                forceFallback: false,
                 scroll: true,
                 scrollSensitivity: 80,
                 scrollSpeed: 15,
@@ -1078,11 +1077,12 @@ class KanbanView extends BasesView {
 
                     } else {
                         // 单选：创建单张卡片预览图（原有逻辑）
+                        // ✅ v1.0.1-beta: 移除透明度，保持卡片完全不透明
                         const dragImageEl = item.cloneNode(true) as HTMLElement;
                         dragImageEl.style.cssText = [
                             `width:${w}px`, `height:${h}px`,
                             'position:fixed', 'top:-9999px', 'left:-9999px',
-                            'opacity:0.9', 'pointer-events:none', 'z-index:9999',
+                            'pointer-events:none', 'z-index:9999',
                             'background:var(--background-primary)',
                             'border:2px solid var(--interactive-accent)',
                             'box-shadow:0 8px 24px rgba(0,0,0,0.25)',
