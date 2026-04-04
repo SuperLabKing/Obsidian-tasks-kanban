@@ -4261,8 +4261,9 @@ ${vcBody}` : fm;
           delayOnTouchOnly: false,
           disabled: isDragLocked,
           ghostClass: "kanban-card-ghost",
-          chosenClass: "kanban-card-chosen",
-          dragClass: "kanban-card-dragging",
+          // ✅ v1.0.1-beta: 禁用 chosenClass 和 dragClass，防止 SortableJS 添加透明度样式
+          chosenClass: "",
+          dragClass: "",
           onStart: (evt) => {
             this.boardEl.addClass("is-dragging-card");
             const item = evt.item;
@@ -4270,13 +4271,6 @@ ${vcBody}` : fm;
             const isMultiDrag = draggedId && this.selectedCards.has(draggedId) && this.selectedCards.size > 1;
             const w = item.offsetWidth;
             const h = item.offsetHeight;
-            const opacityInterval = setInterval(() => {
-              item.style.opacity = "1";
-              this.boardEl.querySelectorAll(".kanban-card").forEach((el) => {
-                el.style.opacity = "1";
-              });
-            }, 16);
-            item._opacityInterval = opacityInterval;
             if (isMultiDrag) {
               const fromContainer = evt.from;
               const allCardsInFrom = Array.from(fromContainer.querySelectorAll(".kanban-card"));
@@ -4455,11 +4449,6 @@ ${vcBody}` : fm;
             }
           },
           onEnd: async (evt) => {
-            const item = evt.item;
-            if (item._opacityInterval) {
-              clearInterval(item._opacityInterval);
-              delete item._opacityInterval;
-            }
             this.boardEl.removeClass("is-dragging-card");
             if (_multiFloatEl) {
               const floatEl = _multiFloatEl;
