@@ -4289,9 +4289,10 @@ ${vcBody}` : fm;
                 "left:0",
                 "pointer-events:none",
                 "z-index:10000",
-                "transform:translate(-9999px,-9999px)",
+                "transform:translate3d(-9999px,-9999px,0)",
                 "transition:opacity 0.3s ease",
-                "will-change:transform"
+                "will-change:transform",
+                "backface-visibility:hidden"
               ].join(";");
               const nonTopEls = selectedEls.filter((el) => el.dataset.id !== topId);
               const topEl = selectedEls.find((el) => el.dataset.id === topId) || item;
@@ -4362,7 +4363,7 @@ ${vcBody}` : fm;
               _multiFloatEl = floatEl;
               requestAnimationFrame(() => {
                 const currentTopRect = topEl.getBoundingClientRect();
-                floatEl.style.transform = `translate(${currentTopRect.left}px,${currentTopRect.top}px)`;
+                floatEl.style.transform = `translate3d(${currentTopRect.left}px,${currentTopRect.top}px,0)`;
                 requestAnimationFrame(() => {
                   const children = Array.from(floatEl.children);
                   const backs = children.slice(0, children.length - 2);
@@ -4389,10 +4390,10 @@ ${vcBody}` : fm;
                 _rafPending = true;
                 requestAnimationFrame(() => {
                   _rafPending = false;
-                  floatEl.style.transform = `translate(${_lastDragX}px,${_lastDragY}px)`;
+                  floatEl.style.transform = `translate3d(${_lastDragX}px,${_lastDragY}px,0)`;
                 });
               };
-              document.addEventListener("dragover", onDragOver);
+              document.addEventListener("dragover", onDragOver, { passive: false });
               selectedEls.forEach((el) => {
                 el.style.opacity = "0";
               });

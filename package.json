@@ -1,6 +1,6 @@
 {
   "name": "bases-kanban-view",
-  "version": "1.0.0",
+  "version": "1.0.1-beta",
   "description": "Kanban view for Obsidian Bases plugin",
   "main": "main.js",
   "scripts": {

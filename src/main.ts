@@ -926,15 +926,16 @@ class KanbanView extends BasesView {
                             ? this.lastSelectedCardId : draggedId;
 
                         // ① 创建跟随鼠标的浮动层
-                        //    will-change: transform 提示浏览器提升为合成层，避免拖动过程中的重绘卡顿
+                        //    ✅ v1.0.1-beta: 优化拖动流畅度 - 使用 GPU 加速和合成层优化
                         const floatEl = document.createElement('div');
                         floatEl.style.cssText = [
                             `width:${w}px`, `height:${h}px`,
                             'position:fixed', 'top:0', 'left:0',
                             'pointer-events:none', 'z-index:10000',
-                            'transform:translate(-9999px,-9999px)',
+                            'transform:translate3d(-9999px,-9999px,0)',
                             'transition:opacity 0.3s ease',
                             'will-change:transform',
+                            'backface-visibility:hidden',
                         ].join(';');
 
                         // ② 非顶层牌（卡背）+ 顶层牌（完整克隆）
@@ -1007,7 +1008,7 @@ class KanbanView extends BasesView {
                         //    第二帧：开启 transition，卡背飞向叠放目标（纯垂直，每张向下 5px，弹性惯性）
                         requestAnimationFrame(() => {
                             const currentTopRect = topEl.getBoundingClientRect();
-                            floatEl.style.transform = `translate(${currentTopRect.left}px,${currentTopRect.top}px)`;
+                            floatEl.style.transform = `translate3d(${currentTopRect.left}px,${currentTopRect.top}px,0)`;
 
                             requestAnimationFrame(() => {
                                 const children = Array.from(floatEl.children) as HTMLElement[];
@@ -1028,8 +1029,9 @@ class KanbanView extends BasesView {
                             });
                         });
 
-                        // ④ 鼠标追踪：RAF 节流，避免高频 style 写入导致卡顿
+                        // ④ 鼠标追踪：RAF 节流 + 批量更新，避免高频 style 写入导致卡顿
                         //    dragover 在 Electron 中稳定提供坐标（drag 事件 clientX/Y 为 0）
+                        //    ✅ v1.0.1-beta: 优化拖动流畅度 - 使用 transform3d 强制 GPU 加速
                         let _rafPending = false;
                         let _lastDragX = 0, _lastDragY = 0;
                         const onDragOver = (e: DragEvent) => {
@@ -1040,10 +1042,11 @@ class KanbanView extends BasesView {
                             _rafPending = true;
                             requestAnimationFrame(() => {
                                 _rafPending = false;
-                                floatEl.style.transform = `translate(${_lastDragX}px,${_lastDragY}px)`;
+                                // 使用 translate3d 强制 GPU 加速，提升拖动流畅度
+                                floatEl.style.transform = `translate3d(${_lastDragX}px,${_lastDragY}px,0)`;
                             });
                         };
-                        document.addEventListener('dragover', onDragOver);
+                        document.addEventListener('dragover', onDragOver, { passive: false });
 
                         // ⑤ 选中的真实卡片：隐藏（opacity:0），SortableJS 仍需要它们在 DOM 中占位
                         selectedEls.forEach(el => { el.style.opacity = '0'; });

@@ -248,6 +248,7 @@
 .kanban-board.bkv-style-completed .kanban-card.is-completed .kanban-card-meta-badge { opacity: 0.6; }
 
 /* ✅ v1.0.12: is-selected 用最高优先级覆盖所有卡片变体（虚拟/置顶/hover），保证多选高亮一致 */
+/* ✅ v1.0.1-beta: 移除选中时的背景透明化，保持原样式 */
 .kanban-card.is-selected,
 .kanban-card.is-selected:hover,
 .kanban-card.is-virtual.is-selected,
@@ -256,10 +257,10 @@
     border-color: var(--interactive-accent) !important;
     border-style: solid !important;
     box-shadow: 0 0 0 2px rgba(var(--interactive-accent-rgb), 0.25) !important;
-    background-color: rgba(var(--interactive-accent-rgb), 0.06) !important;
     transform: none !important;
 }
-.kanban-card.is-pinned { background: var(--background-primary); z-index: 10; margin-bottom: 2px; }
+/* ✅ v1.0.1-beta: 置顶卡片遮盖非置顶卡片，只露出底边堆叠效果 */
+.kanban-card.is-pinned { background: var(--background-primary); z-index: 10; margin-bottom: 2px; position: relative; }
 .kanban-card.is-pinned .kanban-card-title { font-weight: 500; color: var(--text-normal); }
 
 .kanban-card-title-container { display: flex; align-items: flex-start; gap: 8px; width: 100%; position: relative; }
