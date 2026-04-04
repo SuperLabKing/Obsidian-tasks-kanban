@@ -4491,18 +4491,18 @@ ${vcBody}` : fm;
               evt.item.removeClass("is-pinned");
             let settingsNeedSave = false;
             if (activeIds.length > 1) {
-              const allDomCards = Array.from(this.boardEl.querySelectorAll(".kanban-card"));
-              const orderedOtherIds = allDomCards.filter((el) => activeIds.includes(el.dataset.id) && el.dataset.id !== draggedId).map((el) => el.dataset.id);
+              const fromContainer = evt.from;
+              const allCardsInFrom = Array.from(fromContainer.querySelectorAll(".kanban-card"));
+              const selectedInOriginalOrder = allCardsInFrom.filter((el) => activeIds.includes(el.dataset.id));
               const toContainer = evt.to;
               const refNode = evt.item.nextSibling;
-              for (const id of orderedOtherIds) {
-                const el = this.boardEl.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`);
-                if (el) {
-                  if (refNode)
-                    toContainer.insertBefore(el, refNode);
-                  else
-                    toContainer.appendChild(el);
-                }
+              for (const el of selectedInOriginalOrder) {
+                if (el.dataset.id === draggedId)
+                  continue;
+                if (refNode)
+                  toContainer.insertBefore(el, refNode);
+                else
+                  toContainer.appendChild(el);
               }
             }
             for (const id of activeIds) {

@@ -1161,16 +1161,22 @@ class KanbanView extends BasesView {
                     if (isToPinned && !isFromPinned) evt.item.addClass("is-pinned"); else if (!isToPinned && isFromPinned) evt.item.removeClass("is-pinned");
                     let settingsNeedSave = false;
                     if (activeIds.length > 1) {
-                        // ✅ v1.0.15: 按 DOM 原始顺序排列多选卡片，保持集合内部顺序不变
-                        const allDomCards = Array.from(this.boardEl.querySelectorAll('.kanban-card')) as HTMLElement[];
-                        const orderedOtherIds = allDomCards
-                            .filter(el => activeIds.includes(el.dataset.id!) && el.dataset.id !== draggedId)
-                            .map(el => el.dataset.id!);
+                        // ✅ v1.0.1-beta: 保持多选卡片拖拽前的原始顺序，不重新排列
+                        // 收集拖拽前的原始顺序（从源容器中的位置）
+                        const fromContainer = evt.from;
+                        const allCardsInFrom = Array.from(fromContainer.querySelectorAll('.kanban-card')) as HTMLElement[];
+                        const selectedInOriginalOrder = allCardsInFrom.filter(el => activeIds.includes(el.dataset.id!));
 
-                        const toContainer = evt.to; const refNode = evt.item.nextSibling;
-                        for (const id of orderedOtherIds) {
-                            const el = this.boardEl.querySelector(`.kanban-card[data-id="${CSS.escape(id as string)}"]`) as HTMLElement;
-                            if (el) { if (refNode) toContainer.insertBefore(el, refNode); else toContainer.appendChild(el); }
+                        // 按原始顺序插入到目标位置
+                        const toContainer = evt.to;
+                        const refNode = evt.item.nextSibling;
+
+                        // 先移除被拖拽的主卡片（evt.item），因为它已经被 SortableJS 放置好了
+                        // 然后按原始顺序插入其他选中的卡片
+                        for (const el of selectedInOriginalOrder) {
+                            if (el.dataset.id === draggedId) continue; // 跳过主卡片
+                            if (refNode) toContainer.insertBefore(el, refNode);
+                            else toContainer.appendChild(el);
                         }
                     }
                     for (const id of activeIds) {
