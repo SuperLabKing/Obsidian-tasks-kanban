@@ -425,8 +425,7 @@ export class TaskKanbanSettingTab extends PluginSettingTab {
         d.addOption("none", "隐藏");
         d.addOption("simple", "纯色静态");
         d.addOption("stripes", "波浪条纹");
-        d.addOption("shine", "流光扫过");
-        d.addOption("both", "条纹 + 流光叠加");
+        d.addOption("shine", "流光渐变");
         d.addOption("pulse", "脉冲闪烁");
         // 兼容旧值 "animated"
         const curVal = s.progressBarDisplay === "animated" ? (s.progressBarAnimStyle || "stripes") : s.progressBarDisplay;
