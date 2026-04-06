@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Skill(claude-hud:setup)",
+      "Bash(claude mcp:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(node -c src/main.ts)",
+      "Bash(git reset:*)",
+      "Read(//c/Users/罗宇峰/Desktop/Obsidian 插件开发——数据库看板/**)",
+      "Bash(node -e ':*)",
+      "Bash(rm:*)"
+    ]
+  }
+}

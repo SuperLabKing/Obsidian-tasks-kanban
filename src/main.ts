@@ -545,7 +545,7 @@ class KanbanView extends BasesView {
             return baseYaml + extra;
         };
 
-        const rewriteColumnOrder = async (cardsArr: HTMLElement[], targetCol: string, isPinnedZone: boolean) => {
+        const rewriteColumnOrder = async (cardsArr: HTMLElement[], targetCol: string, isPinnedZone: boolean, skipFrontmatterUpdate: boolean = false) => {
             const targetYamlProp = isPinnedZone ? yamlPinnedOrderProp : yamlOrderProp;
             const dir = (settings.columnSortDir && settings.columnSortDir[targetCol]) || 'asc';
             const total = cardsArr.length;
@@ -560,7 +560,8 @@ class KanbanView extends BasesView {
                     if (vc) { if (isPinnedZone) vc.pinnedOrder = finalStr; else vc.order = finalStr; }
                 } else {
                     // 只有开启项目环节开关的视图才更新 frontmatter 中的环节属性
-                    if (isGlobalAuto) {
+                    // 添加 skipFrontmatterUpdate 参数，允许跳过 frontmatter 更新以避免闪烁
+                    if (isGlobalAuto && !skipFrontmatterUpdate) {
                         const f = this.app.vault.getAbstractFileByPath(el.dataset.id!);
                         if (f instanceof TFile) await this.app.fileManager.processFrontMatter(f, fm => { fm[targetYamlProp] = [finalStr]; });
                     }
@@ -1319,8 +1320,12 @@ class KanbanView extends BasesView {
                         else { const f = this.app.vault.getAbstractFileByPath(id!); if (f instanceof TFile) { await this.app.fileManager.processFrontMatter(f, fm => { if (fm[yamlGroupProp] !== toColName) { fm[yamlGroupProp] = toColName; settingsNeedSave = true; } if (isToPinned && !isFromPinned) { fm[pinnedProp] = true; delete fm[yamlOrderProp]; } else if (!isToPinned && isFromPinned) { delete fm[pinnedProp]; } if (isProgressSync && yamlProgProp && toColName) { fm[yamlProgProp] = [toColName]; } }); } }
                     }
                     updateProgress(evt.from.dataset.colId); if (evt.from !== evt.to) updateProgress(evt.to.dataset.colId);
-                    const siblingEls = Array.from(evt.to.querySelectorAll(".kanban-card")) as HTMLElement[]; await rewriteColumnOrder(siblingEls, toColName, isToPinned);
-                    if (isGlobalAuto && evt.from !== evt.to) { const fromSiblingEls = Array.from(evt.from.querySelectorAll(".kanban-card")) as HTMLElement[]; await rewriteColumnOrder(fromSiblingEls, evt.from.dataset.colId!, isFromPinned); }
+                    const siblingEls = Array.from(evt.to.querySelectorAll(".kanban-card")) as HTMLElement[];
+                    await rewriteColumnOrder(siblingEls, toColName, isToPinned, false); // 恢复 frontmatter 更新
+                    if (isGlobalAuto && evt.from !== evt.to) {
+                        const fromSiblingEls = Array.from(evt.from.querySelectorAll(".kanban-card")) as HTMLElement[];
+                        await rewriteColumnOrder(fromSiblingEls, evt.from.dataset.colId!, isFromPinned, false); // 恢复 frontmatter 更新
+                    }
                     // ✅ v1.0.6 FIX: 拖拽结束不再调 requestUpdate()。
                     // SortableJS 已将 DOM 移动到正确位置，只需持久化数据即可。
                     // requestUpdate 会触发 containerEl.empty() 全板重建，导致闪烁。

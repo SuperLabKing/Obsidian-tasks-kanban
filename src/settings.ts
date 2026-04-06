@@ -421,6 +421,10 @@ export class TaskKanbanSettingTab extends PluginSettingTab {
     {
       const sg = createSubGroup(containerEl);
 
+      // 先声明变量，后面才能引用
+      let speedRow: Setting;
+      let colorRow: Setting;
+
       new Setting(sg).setName("动画样式").addDropdown(d => {
         d.addOption("none", "隐藏");
         d.addOption("simple", "纯色静态");
@@ -438,13 +442,31 @@ export class TaskKanbanSettingTab extends PluginSettingTab {
             s.progressBarAnimStyle = v;
           }
           await save(true);
-          speedRow.style.display = (v === "none" || v === "simple") ? "none" : "";
+          speedRow.settingEl.style.display = (v === "none" || v === "simple") ? "none" : "";
+          colorRow.settingEl.style.display = (v === "none") ? "none" : "";
         });
-        speedRow.style.display = (curVal === "none" || curVal === "simple") ? "none" : "";
       });
 
-      const speedRow = sg.createDiv();
-      new Setting(speedRow)
+      colorRow = new Setting(sg)
+        .setName("进度条颜色")
+        .setDesc("自定义进度条颜色，留空则跟随主题强调色。");
+      colorRow.controlEl.createEl("input", {
+        type: "color",
+        value: s.progressBarColor || "#7c3aed",
+        attr: { style: "width:60px;height:32px;border:none;border-radius:4px;cursor:pointer;" }
+      }).addEventListener("input", async (e: Event) => {
+        s.progressBarColor = (e.target as HTMLInputElement).value;
+        await save(true);
+      });
+      colorRow.addExtraButton(btn => btn.setIcon("reset").setTooltip("重置为跟随主题").onClick(async () => {
+        s.progressBarColor = "";
+        await save(true);
+        this.display();
+      }));
+      const curVal = s.progressBarDisplay === "animated" ? (s.progressBarAnimStyle || "stripes") : s.progressBarDisplay;
+      colorRow.settingEl.style.display = (curVal === "none") ? "none" : "";
+
+      speedRow = new Setting(sg)
         .setName("动画频率")
         .setDesc("数值越小动画越快（0.1 ~ 2.0 秒）。")
         .addSlider(sl => sl.setLimits(0.1, 2.0, 0.1).setValue(s.progressBarSpeed).setDynamicTooltip()
@@ -452,6 +474,7 @@ export class TaskKanbanSettingTab extends PluginSettingTab {
         .addExtraButton(btn => btn.setIcon("reset").setTooltip("重置为 1.0 秒").onClick(async () => {
           s.progressBarSpeed = 1.0; await save(true); this.display();
         }));
+      speedRow.settingEl.style.display = (curVal === "none" || curVal === "simple") ? "none" : "";
 
       new Setting(sg)
         .setName("进度条变化速度")
