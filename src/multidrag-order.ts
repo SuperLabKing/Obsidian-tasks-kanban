@@ -53,9 +53,9 @@ export const getMultiDragExtractionLayerMotionProfile = (visibleCount: number, i
     const depth = getMultiDragVisibleDepth(visibleCount, index);
     return {
         depth,
-        offsetY: depth * 12,
-        scale: 1 - depth * 0.025,
-        opacity: Math.max(0.4, 1 - depth * 0.15),
+        offsetY: depth * 8,
+        scale: 1 - depth * 0.015,
+        opacity: 1,
     };
 };
 

@@ -406,7 +406,6 @@
     position: absolute;
     inset: 0;
     transform-origin: top center;
-    transition: transform 180ms cubic-bezier(.22,1,.36,1), opacity 180ms ease;
     pointer-events: none;
     opacity: 1;
 }
