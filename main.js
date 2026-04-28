@@ -4269,10 +4269,13 @@ var KanbanView = class extends BasesView2 {
         return;
       }
       let baseRect = null;
+      console.log("[kanban] insertion: fallback=", !!fallback, "fallback.isConnected=", !!(fallback && fallback.isConnected));
       if (fallback && fallback.isConnected) {
         baseRect = this.snapshotRect(fallback);
+        console.log("[kanban] baseRect from fallback:", baseRect);
       }
       if (!baseRect && state) {
+        console.log("[kanban] trying pointer fallback: ptrX=", state.pointerClientX, "ptrY=", state.pointerClientY, "offX=", state.pointerOffsetX, "offY=", state.pointerOffsetY);
         const ptrX = state.pointerClientX;
         const ptrY = state.pointerClientY;
         const offX = state.pointerOffsetX;
@@ -4281,10 +4284,13 @@ var KanbanView = class extends BasesView2 {
           const w = fallback ? fallback.offsetWidth : (_b = (_a = state.dragRect) == null ? void 0 : _a.width) != null ? _b : 280;
           const h = fallback ? fallback.offsetHeight : (_d = (_c = state.dragRect) == null ? void 0 : _c.height) != null ? _d : 80;
           baseRect = { left: ptrX - offX, top: ptrY - offY, width: w, height: h };
+          console.log("[kanban] baseRect from pointer:", baseRect);
         }
       }
-      if (!baseRect)
+      if (!baseRect) {
+        console.log("[kanban] NO baseRect \u2014 returning early");
         return;
+      }
       const targetRects = (state == null ? void 0 : state.pendingInsertionRects) && state.pendingInsertionRects.length === orderedEls.length ? state.pendingInsertionRects : orderedEls.map((el) => this.snapshotRect(el));
       const orderedIds = (_e = state == null ? void 0 : state.orderedIds) != null ? _e : orderedEls.map((el) => el.dataset.id || "");
       const slotRoomIds = (_f = state == null ? void 0 : state.pendingInsertionRoomIds) != null ? _f : [];

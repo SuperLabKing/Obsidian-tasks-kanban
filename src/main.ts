@@ -1176,10 +1176,13 @@ class KanbanView extends BasesView {
       // Determine stack position: prefer snapshotRect(fallback) since fallback IS the
       // visual stack following the cursor. Fall back to computing from pointer state.
       let baseRect: RectSnapshot | null = null;
+      console.log('[kanban] insertion: fallback=', !!fallback, 'fallback.isConnected=', !!(fallback && fallback.isConnected));
       if (fallback && fallback.isConnected) {
           baseRect = this.snapshotRect(fallback);
+          console.log('[kanban] baseRect from fallback:', baseRect);
       }
       if (!baseRect && state) {
+          console.log('[kanban] trying pointer fallback: ptrX=', state.pointerClientX, 'ptrY=', state.pointerClientY, 'offX=', state.pointerOffsetX, 'offY=', state.pointerOffsetY);
           const ptrX = state.pointerClientX;
           const ptrY = state.pointerClientY;
           const offX = state.pointerOffsetX;
@@ -1188,9 +1191,10 @@ class KanbanView extends BasesView {
               const w = fallback ? fallback.offsetWidth : (state.dragRect?.width ?? 280);
               const h = fallback ? fallback.offsetHeight : (state.dragRect?.height ?? 80);
               baseRect = { left: ptrX - offX, top: ptrY - offY, width: w, height: h };
+              console.log('[kanban] baseRect from pointer:', baseRect);
           }
       }
-      if (!baseRect) return;
+      if (!baseRect) { console.log('[kanban] NO baseRect — returning early'); return; }
 
       const targetRects = state?.pendingInsertionRects && state.pendingInsertionRects.length === orderedEls.length
           ? state.pendingInsertionRects
