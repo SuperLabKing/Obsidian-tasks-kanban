@@ -905,11 +905,12 @@ class KanbanView extends BasesView {
   }
 
   private async playMultiDragExtraction(item: HTMLElement, fallback: HTMLElement, orderedIds: string[]) {
-      const state = this._multiDragState;
-      if (!state || orderedIds.length < 2) {
-          return;
-      }
-      const overlay = document.createElement('div');
+      try {
+          const state = this._multiDragState;
+          if (!state || orderedIds.length < 2) {
+              return;
+          }
+          const overlay = document.createElement('div');
       overlay.className = 'kanban-multidrag-overlay';
       document.body.appendChild(overlay);
       const draggedId = item.dataset.id || '';
@@ -1005,6 +1006,9 @@ class KanbanView extends BasesView {
       overlay.remove();
       this.applyMultiDragPhaseVisibility('dragging', fallback, sourceEls);
       item.style.setProperty('opacity', '1', 'important');
+      } catch (e) {
+          console.error('[kanban] playMultiDragExtraction error:', e);
+      }
   }
 
   private applyMultiDragFinalOrder(toContainer: HTMLElement, orderedIds: string[], draggedItem: HTMLElement) {
@@ -1158,6 +1162,7 @@ class KanbanView extends BasesView {
   }
 
   private async playMultiDragInsertion(fallback: HTMLElement | null, item: HTMLElement, orderedEls: HTMLElement[]) {
+      try {
       const state = this._multiDragState;
       if (orderedEls.length < 2) {
           if (state) {
@@ -1288,6 +1293,9 @@ class KanbanView extends BasesView {
           state.pendingInsertionRects = undefined;
           state.pendingInsertionRoomIds = undefined;
           state.pendingInsertionRoomRects = undefined;
+      }
+      } catch (e) {
+          console.error('[kanban] playMultiDragInsertion error:', e);
       }
   }
 
