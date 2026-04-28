@@ -4040,6 +4040,7 @@ var KanbanView = class extends BasesView2 {
       const flyClone = this.createFlyClone(sourceEl, rect);
       flyClone.style.boxShadow = this.getMultiDragExtractionShadow(0);
       flyClone.style.transition = "box-shadow 260ms cubic-bezier(.22,1,.36,1)";
+      flyClone.style.transform = "translate(0px, 0px)";
       overlay.appendChild(flyClone);
       const finalLayerIndex = finalVisibleIds.indexOf(id);
       const profile = getMultiDragExtractionLayerMotionProfile(finalVisibleIds.length, finalLayerIndex === -1 ? finalVisibleIds.length - 1 : finalLayerIndex);
@@ -4252,7 +4253,7 @@ var KanbanView = class extends BasesView2 {
     });
   }
   async playMultiDragInsertion(fallback, item, orderedEls) {
-    var _a, _b, _c;
+    var _a, _b, _c, _d, _e, _f, _g;
     const state = this._multiDragState;
     if (orderedEls.length < 2) {
       if (state) {
@@ -4262,27 +4263,39 @@ var KanbanView = class extends BasesView2 {
       }
       return;
     }
+    let baseRect = null;
+    if (fallback && fallback.isConnected) {
+      baseRect = this.snapshotRect(fallback);
+    }
+    if (!baseRect && state) {
+      const ptrX = state.pointerClientX;
+      const ptrY = state.pointerClientY;
+      const offX = state.pointerOffsetX;
+      const offY = state.pointerOffsetY;
+      if (ptrX != null && ptrY != null && offX != null && offY != null) {
+        const w = fallback ? fallback.offsetWidth : (_b = (_a = state.dragRect) == null ? void 0 : _a.width) != null ? _b : 280;
+        const h = fallback ? fallback.offsetHeight : (_d = (_c = state.dragRect) == null ? void 0 : _c.height) != null ? _d : 80;
+        baseRect = { left: ptrX - offX, top: ptrY - offY, width: w, height: h };
+      }
+    }
+    if (!baseRect)
+      return;
     const targetRects = (state == null ? void 0 : state.pendingInsertionRects) && state.pendingInsertionRects.length === orderedEls.length ? state.pendingInsertionRects : orderedEls.map((el) => this.snapshotRect(el));
-    const orderedIds = (_a = state == null ? void 0 : state.orderedIds) != null ? _a : orderedEls.map((el) => el.dataset.id || "");
-    const slotRoomIds = (_b = state == null ? void 0 : state.pendingInsertionRoomIds) != null ? _b : [];
-    const slotRoomRects = (_c = state == null ? void 0 : state.pendingInsertionRoomRects) != null ? _c : [];
+    const orderedIds = (_e = state == null ? void 0 : state.orderedIds) != null ? _e : orderedEls.map((el) => el.dataset.id || "");
+    const slotRoomIds = (_f = state == null ? void 0 : state.pendingInsertionRoomIds) != null ? _f : [];
+    const slotRoomRects = (_g = state == null ? void 0 : state.pendingInsertionRoomRects) != null ? _g : [];
     const slotRoomEls = slotRoomIds.map((id) => this.boardEl.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`)).filter(Boolean);
     slotRoomEls.forEach((el) => {
       el.addClass("is-multidrag-room-card");
       el.dataset.multidragKeepTransformUntilCommit = "true";
     });
     this.applyMultiDragInsertionSlotLayout(slotRoomEls, slotRoomRects);
-    const dragRect = state == null ? void 0 : state.dragRect;
-    if (!dragRect) {
-      this.clearMultiDragInsertionSlotLayout(slotRoomEls);
-      return;
-    }
     const overlay = document.createElement("div");
     overlay.className = "kanban-multidrag-overlay";
     document.body.appendChild(overlay);
     this.applyMultiDragPhaseVisibility("inserting", fallback, orderedEls);
     if (fallback) {
-      fallback.style.width = `${dragRect.width}px`;
+      fallback.style.width = `${baseRect.width}px`;
     }
     this.buildMultiDragPreview(
       fallback,
@@ -4296,32 +4309,27 @@ var KanbanView = class extends BasesView2 {
     const DURATION_BASE = 800;
     const insertFlyParams = orderedEls.map((leavingEl, index2) => {
       const targetRect = targetRects[index2] || this.snapshotRect(leavingEl);
-      const visibleIds = getMultiDragAnchoredPreviewIds(orderedIds.filter((candidateId) => pendingIds.has(candidateId)), item.dataset.id || "");
+      const visibleIds = getMultiDragAnchoredPreviewIds(
+        orderedIds.filter((candidateId) => pendingIds.has(candidateId)),
+        item.dataset.id || ""
+      );
       const layerIndex = visibleIds.indexOf(leavingEl.dataset.id || "");
       const profile = getMultiDragLayerMotionProfile(visibleIds.length, layerIndex === -1 ? visibleIds.length - 1 : layerIndex);
       const startRect = {
-        left: dragRect.left,
-        top: dragRect.top + profile.offsetY,
-        width: dragRect.width,
-        height: dragRect.height
+        left: baseRect.left,
+        top: baseRect.top + profile.offsetY,
+        width: baseRect.width,
+        height: baseRect.height
       };
       const flyClone = this.createFlyClone(leavingEl, startRect);
       flyClone.style.boxShadow = this.getMultiDragInsertionShadow(0);
       flyClone.style.transition = "box-shadow 260ms cubic-bezier(.22,1,.36,1)";
       flyClone.style.transform = "translate(0px, 0px)";
       overlay.appendChild(flyClone);
-      return {
-        clone: flyClone,
-        leavingEl,
-        index: index2,
-        startRect,
-        targetRect,
-        layerIndex
-      };
+      return { clone: flyClone, leavingEl, index: index2, startRect, targetRect, layerIndex };
     }).filter(Boolean);
     if (insertFlyParams.length === 0) {
       overlay.remove();
-      this.clearMultiDragInsertionSlotLayout(slotRoomEls);
       return;
     }
     try {
@@ -4331,11 +4339,8 @@ var KanbanView = class extends BasesView2 {
           const elapsed = now - insertStartTime;
           let allDone = true;
           insertFlyParams.forEach((fp) => {
-            const dist = Math.hypot(
-              fp.targetRect.left - fp.startRect.left,
-              fp.targetRect.top - fp.startRect.top
-            );
-            const distFactor = Math.max(0.6, Math.min(1, dist / 600));
+            const dist = Math.hypot(fp.targetRect.left - fp.startRect.left, fp.targetRect.top - fp.startRect.top);
+            const distFactor = Math.max(0.55, Math.min(1, dist / 650));
             const duration = DURATION_BASE * distFactor;
             const rawProgress = Math.min(1, elapsed / duration);
             const eased = 1 - Math.pow(1 - rawProgress, 4);

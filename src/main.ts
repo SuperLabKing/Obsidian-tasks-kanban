@@ -939,6 +939,7 @@ class KanbanView extends BasesView {
           const flyClone = this.createFlyClone(sourceEl, rect);
           flyClone.style.boxShadow = this.getMultiDragExtractionShadow(0);
           flyClone.style.transition = 'box-shadow 260ms cubic-bezier(.22,1,.36,1)';
+          flyClone.style.transform = 'translate(0px, 0px)';
           overlay.appendChild(flyClone);
           const finalLayerIndex = finalVisibleIds.indexOf(id);
           const profile = getMultiDragExtractionLayerMotionProfile(finalVisibleIds.length, finalLayerIndex === -1 ? finalVisibleIds.length - 1 : finalLayerIndex);
@@ -1166,6 +1167,26 @@ class KanbanView extends BasesView {
           }
           return;
       }
+
+      // Determine stack position: prefer snapshotRect(fallback) since fallback IS the
+      // visual stack following the cursor. Fall back to computing from pointer state.
+      let baseRect: RectSnapshot | null = null;
+      if (fallback && fallback.isConnected) {
+          baseRect = this.snapshotRect(fallback);
+      }
+      if (!baseRect && state) {
+          const ptrX = state.pointerClientX;
+          const ptrY = state.pointerClientY;
+          const offX = state.pointerOffsetX;
+          const offY = state.pointerOffsetY;
+          if (ptrX != null && ptrY != null && offX != null && offY != null) {
+              const w = fallback ? fallback.offsetWidth : (state.dragRect?.width ?? 280);
+              const h = fallback ? fallback.offsetHeight : (state.dragRect?.height ?? 80);
+              baseRect = { left: ptrX - offX, top: ptrY - offY, width: w, height: h };
+          }
+      }
+      if (!baseRect) return;
+
       const targetRects = state?.pendingInsertionRects && state.pendingInsertionRects.length === orderedEls.length
           ? state.pendingInsertionRects
           : orderedEls.map((el) => this.snapshotRect(el));
@@ -1183,56 +1204,43 @@ class KanbanView extends BasesView {
       });
       this.applyMultiDragInsertionSlotLayout(slotRoomEls, slotRoomRects);
 
-      // Use dragRect from state as the stack position — more reliable than snapshotRect(fallback)
-      // because fallback may have been moved by SortableJS while we're in onEnd.
-      const dragRect = state?.dragRect;
-      if (!dragRect) {
-          // No stack position known — skip animation
-          this.clearMultiDragInsertionSlotLayout(slotRoomEls);
-          return;
-      }
-
-      // Create overlay for fly clones
       const overlay = document.createElement('div');
       overlay.className = 'kanban-multidrag-overlay';
       document.body.appendChild(overlay);
 
-      // Update fallback visual
       this.applyMultiDragPhaseVisibility('inserting', fallback, orderedEls);
       if (fallback) {
-          fallback.style.width = `${dragRect.width}px`;
+          fallback.style.width = `${baseRect.width}px`;
       }
       this.buildMultiDragPreview(
-          fallback,
-          item,
-          orderedIds,
-          item.dataset.id || '',
+          fallback, item, orderedIds, item.dataset.id || '',
           getMultiDragAnchoredPreviewIds(orderedIds, item.dataset.id || ''),
       );
       await this.nextFrame();
 
-      // Build fly params: depart from stack (dragRect + layer offset), fly to target rects
+      // Build fly params: each card departs from its layer position in the stack
       const pendingIds = new Set(orderedIds);
       const DURATION_BASE = 800;
       const insertFlyParams = orderedEls.map((leavingEl, index) => {
           const targetRect = targetRects[index] || this.snapshotRect(leavingEl);
-          const visibleIds = getMultiDragAnchoredPreviewIds(orderedIds.filter((candidateId) => pendingIds.has(candidateId)), item.dataset.id || '');
+          const visibleIds = getMultiDragAnchoredPreviewIds(
+              orderedIds.filter((candidateId) => pendingIds.has(candidateId)),
+              item.dataset.id || ''
+          );
           const layerIndex = visibleIds.indexOf(leavingEl.dataset.id || '');
           const profile = getMultiDragLayerMotionProfile(visibleIds.length, layerIndex === -1 ? visibleIds.length - 1 : layerIndex);
           const startRect: RectSnapshot = {
-              left: dragRect.left,
-              top: dragRect.top + profile.offsetY,
-              width: dragRect.width,
-              height: dragRect.height,
+              left: baseRect!.left,
+              top: baseRect!.top + profile.offsetY,
+              width: baseRect!.width,
+              height: baseRect!.height,
           };
           const flyClone = this.createFlyClone(leavingEl, startRect);
           flyClone.style.boxShadow = this.getMultiDragInsertionShadow(0);
           flyClone.style.transition = 'box-shadow 260ms cubic-bezier(.22,1,.36,1)';
           flyClone.style.transform = 'translate(0px, 0px)';
           overlay.appendChild(flyClone);
-          return {
-              clone: flyClone, leavingEl, index, startRect, targetRect, layerIndex,
-          };
+          return { clone: flyClone, leavingEl, index, startRect, targetRect, layerIndex };
       }).filter(Boolean) as Array<{
           clone: HTMLElement; leavingEl: HTMLElement; index: number;
           startRect: RectSnapshot; targetRect: RectSnapshot; layerIndex: number;
@@ -1240,7 +1248,6 @@ class KanbanView extends BasesView {
 
       if (insertFlyParams.length === 0) {
           overlay.remove();
-          this.clearMultiDragInsertionSlotLayout(slotRoomEls);
           return;
       }
 
@@ -1250,37 +1257,23 @@ class KanbanView extends BasesView {
               const tick = (now: number) => {
                   const elapsed = now - insertStartTime;
                   let allDone = true;
-
                   insertFlyParams.forEach(fp => {
-                      const dist = Math.hypot(
-                          fp.targetRect.left - fp.startRect.left,
-                          fp.targetRect.top - fp.startRect.top
-                      );
-                      // Distance-based speed: farther = slightly faster, but tight range
-                      const distFactor = Math.max(0.6, Math.min(1.0, dist / 600));
+                      const dist = Math.hypot(fp.targetRect.left - fp.startRect.left, fp.targetRect.top - fp.startRect.top);
+                      const distFactor = Math.max(0.55, Math.min(1.0, dist / 650));
                       const duration = DURATION_BASE * distFactor;
                       const rawProgress = Math.min(1, elapsed / duration);
-                      // easeOutQuart: stronger deceleration as cards approach target
                       const eased = 1 - Math.pow(1 - rawProgress, 4);
-
                       const cx = fp.startRect.left + (fp.targetRect.left - fp.startRect.left) * eased;
                       const cy = fp.startRect.top + (fp.targetRect.top - fp.startRect.top) * eased;
                       const cw = fp.startRect.width + (fp.targetRect.width - fp.startRect.width) * eased;
                       const ch = fp.startRect.height + (fp.targetRect.height - fp.startRect.height) * eased;
-
                       fp.clone.style.transform = `translate(${cx - fp.startRect.left}px, ${cy - fp.startRect.top}px)`;
                       fp.clone.style.width = `${cw}px`;
                       fp.clone.style.height = `${ch}px`;
                       fp.clone.style.boxShadow = this.getMultiDragInsertionShadow(eased);
-
                       if (rawProgress < 1) allDone = false;
                   });
-
-                  if (allDone) {
-                      resolve();
-                  } else {
-                      requestAnimationFrame(tick);
-                  }
+                  if (allDone) { resolve(); } else { requestAnimationFrame(tick); }
               };
               requestAnimationFrame(tick);
           });
