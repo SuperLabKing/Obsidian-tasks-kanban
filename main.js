@@ -5733,9 +5733,12 @@ ${vcBody}` : fm;
                 updateProgress(evt.from.dataset.colId);
               }
               if (isMultiDrag) {
+                console.log("[kanban] onEnd isMultiDrag=true, _multiDragState=", !!this._multiDragState);
                 const orderedEls = this.applyMultiDragFinalOrder(evt.to, activeIds, evt.item);
+                console.log("[kanban] orderedEls.length=", orderedEls.length);
                 let slotRoomEls = [];
                 if (orderedEls.length > 0) {
+                  console.log("[kanban] orderedEls has items, _multiDragState exists=", !!this._multiDragState);
                   if (this._multiDragState) {
                     this._multiDragState.pendingInsertionRects = this.measureMultiDragTargetRects(evt.to, orderedEls, evt.item);
                     const roomLayout = this.measureMultiDragInsertionRoomLayout(evt.to, activeIds, evt.item);
@@ -5744,7 +5747,11 @@ ${vcBody}` : fm;
                     slotRoomEls = roomLayout.ids.map((id) => this.boardEl.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`)).filter(Boolean);
                   }
                   if (evt.from !== evt.to) {
+                    console.log("[kanban] calling playMultiDragInsertion, fallback=", !!fallback);
                     await this.playMultiDragInsertion(fallback, evt.item, orderedEls);
+                    console.log("[kanban] playMultiDragInsertion returned");
+                  } else {
+                    console.log("[kanban] same column, skipping insertion");
                   }
                   this.commitMultiDragFinalOrder(evt.to, activeIds, evt.item);
                   if (evt.from !== evt.to) {

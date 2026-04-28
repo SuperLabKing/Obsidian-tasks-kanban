@@ -2352,9 +2352,12 @@ class KanbanView extends BasesView {
                         }
                         // Play divergence animation (clones fly from stack to target positions)
                         if (isMultiDrag) {
+                            console.log('[kanban] onEnd isMultiDrag=true, _multiDragState=', !!this._multiDragState);
                             const orderedEls = this.applyMultiDragFinalOrder(evt.to as HTMLElement, activeIds as string[], evt.item as HTMLElement);
+                            console.log('[kanban] orderedEls.length=', orderedEls.length);
                             let slotRoomEls: HTMLElement[] = [];
                             if (orderedEls.length > 0) {
+                                console.log('[kanban] orderedEls has items, _multiDragState exists=', !!this._multiDragState);
                                 if (this._multiDragState) {
                                     this._multiDragState.pendingInsertionRects = this.measureMultiDragTargetRects(evt.to as HTMLElement, orderedEls, evt.item as HTMLElement);
                                     const roomLayout = this.measureMultiDragInsertionRoomLayout(evt.to as HTMLElement, activeIds as string[], evt.item as HTMLElement);
@@ -2365,7 +2368,11 @@ class KanbanView extends BasesView {
                                         .filter(Boolean) as HTMLElement[];
                                 }
                                 if (evt.from !== evt.to) {
+                                    console.log('[kanban] calling playMultiDragInsertion, fallback=', !!fallback);
                                     await this.playMultiDragInsertion(fallback, evt.item as HTMLElement, orderedEls);
+                                    console.log('[kanban] playMultiDragInsertion returned');
+                                } else {
+                                    console.log('[kanban] same column, skipping insertion');
                                 }
                                 this.commitMultiDragFinalOrder(evt.to as HTMLElement, activeIds as string[], evt.item as HTMLElement);
                                 if (evt.from !== evt.to) {
