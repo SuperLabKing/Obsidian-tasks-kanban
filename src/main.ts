@@ -1255,12 +1255,17 @@ class KanbanView extends BasesView {
           startRect: RectSnapshot; targetRect: RectSnapshot; layerIndex: number;
       }>;
 
+      console.log('[kanban] insertFlyParams.length=', insertFlyParams.length);
+      insertFlyParams.forEach((fp, i) => {
+          console.log(`[kanban]   fp[${i}] start=(${fp.startRect.left},${fp.startRect.top}) target=(${fp.targetRect.left},${fp.targetRect.top}) dist=${Math.hypot(fp.targetRect.left - fp.startRect.left, fp.targetRect.top - fp.startRect.top).toFixed(0)}`);
+      });
       if (insertFlyParams.length === 0) {
           overlay.remove();
           return;
       }
 
       try {
+          console.log('[kanban] starting rAF fly loop');
           const insertStartTime = performance.now();
           await new Promise<void>(resolve => {
               const tick = (now: number) => {
@@ -1282,7 +1287,10 @@ class KanbanView extends BasesView {
                       fp.clone.style.boxShadow = this.getMultiDragInsertionShadow(eased);
                       if (rawProgress < 1) allDone = false;
                   });
-                  if (allDone) { resolve(); } else { requestAnimationFrame(tick); }
+                  if (allDone) {
+                      console.log('[kanban] rAF fly loop done, elapsed=', (performance.now() - insertStartTime).toFixed(0), 'ms');
+                      resolve();
+                  } else { requestAnimationFrame(tick); }
               };
               requestAnimationFrame(tick);
           });

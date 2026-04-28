@@ -4339,11 +4339,16 @@ var KanbanView = class extends BasesView2 {
         overlay.appendChild(flyClone);
         return { clone: flyClone, leavingEl, index: index2, startRect, targetRect, layerIndex };
       }).filter(Boolean);
+      console.log("[kanban] insertFlyParams.length=", insertFlyParams.length);
+      insertFlyParams.forEach((fp, i) => {
+        console.log(`[kanban]   fp[${i}] start=(${fp.startRect.left},${fp.startRect.top}) target=(${fp.targetRect.left},${fp.targetRect.top}) dist=${Math.hypot(fp.targetRect.left - fp.startRect.left, fp.targetRect.top - fp.startRect.top).toFixed(0)}`);
+      });
       if (insertFlyParams.length === 0) {
         overlay.remove();
         return;
       }
       try {
+        console.log("[kanban] starting rAF fly loop");
         const insertStartTime = performance.now();
         await new Promise((resolve) => {
           const tick = (now) => {
@@ -4367,6 +4372,7 @@ var KanbanView = class extends BasesView2 {
                 allDone = false;
             });
             if (allDone) {
+              console.log("[kanban] rAF fly loop done, elapsed=", (performance.now() - insertStartTime).toFixed(0), "ms");
               resolve();
             } else {
               requestAnimationFrame(tick);
