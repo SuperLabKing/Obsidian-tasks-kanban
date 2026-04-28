@@ -3936,6 +3936,7 @@ var KanbanView = class extends BasesView2 {
       fallback.style.overflow = "";
       fallback.style.pointerEvents = "";
     }
+    document.querySelectorAll(".kanban-multidrag-overlay").forEach((el) => el.remove());
   }
   applyMultiDragPhaseVisibility(phase, fallback, sourceEls = [], slotEls = []) {
     const visibility = getMultiDragPhaseVisibility(phase);
@@ -4029,7 +4030,7 @@ var KanbanView = class extends BasesView2 {
     await this.nextFrame();
     const revealedIds = /* @__PURE__ */ new Set();
     const finalVisibleIds = getMultiDragAnchoredPreviewIds(orderedIds, draggedId);
-    const DURATION_BASE = 360;
+    const DURATION_BASE = 600;
     const flyParams = sources.map(({ sourceEl, rect, id }, index2) => {
       var _a, _b, _c;
       sourceEl.addClass("is-multidrag-source");
@@ -4068,7 +4069,7 @@ var KanbanView = class extends BasesView2 {
             liveTargetRect.left - fp.startLeft,
             liveTargetRect.top + fp.offsetY - fp.startTop
           );
-          const distFactor = Math.max(0.7, Math.min(1.4, dist / 400));
+          const distFactor = Math.max(0.8, Math.min(1.2, dist / 500));
           const duration = DURATION_BASE * distFactor;
           const rawProgress = Math.min(1, elapsed / duration);
           const eased = 1 - Math.pow(1 - rawProgress, 3);
@@ -4271,7 +4272,7 @@ var KanbanView = class extends BasesView2 {
     this.applyMultiDragInsertionSlotLayout(slotRoomEls, slotRoomRects);
     this.applyMultiDragInsertionSlotLayout(orderedEls, targetRects);
     orderedEls.forEach((el) => {
-      el.style.setProperty("opacity", "1", "important");
+      el.style.setProperty("opacity", "0", "important");
       el.style.setProperty("visibility", "visible", "important");
       el.removeClass("is-multidrag-source");
     });
@@ -4293,7 +4294,7 @@ var KanbanView = class extends BasesView2 {
     );
     await this.nextFrame();
     const pendingIds = new Set(orderedIds);
-    const DURATION_BASE = 360;
+    const DURATION_BASE = 600;
     const insertFlyParams = orderedEls.map((leavingEl, index2) => {
       const targetRect = targetRects[index2] || this.snapshotRect(leavingEl);
       const visibleIds = getMultiDragAnchoredPreviewIds(orderedIds.filter((candidateId) => pendingIds.has(candidateId)), item.dataset.id || "");
@@ -4323,41 +4324,48 @@ var KanbanView = class extends BasesView2 {
         layerIndex
       };
     }).filter(Boolean);
-    const insertStartTime = performance.now();
-    await new Promise((resolve) => {
-      const tick = (now) => {
-        const elapsed = now - insertStartTime;
-        let allDone = true;
-        insertFlyParams.forEach((fp) => {
-          const dist = Math.hypot(
-            fp.targetRect.left - fp.startRect.left,
-            fp.targetRect.top - fp.startRect.top
-          );
-          const distFactor = Math.max(0.7, Math.min(1.5, dist / 350));
-          const duration = DURATION_BASE * distFactor;
-          const rawProgress = Math.min(1, elapsed / duration);
-          const eased = 1 - Math.pow(1 - rawProgress, 3);
-          const cx = fp.startRect.left + (fp.targetRect.left - fp.startRect.left) * eased;
-          const cy = fp.startRect.top + (fp.targetRect.top - fp.startRect.top) * eased;
-          const cw = fp.startRect.width + (fp.targetRect.width - fp.startRect.width) * eased;
-          const ch = fp.startRect.height + (fp.targetRect.height - fp.startRect.height) * eased;
-          fp.clone.style.transform = `translate(${cx - fp.startRect.left}px, ${cy - fp.startRect.top}px)`;
-          fp.clone.style.width = `${cw}px`;
-          fp.clone.style.height = `${ch}px`;
-          fp.clone.style.boxShadow = this.getMultiDragInsertionShadow(eased);
-          if (rawProgress < 1)
-            allDone = false;
-        });
-        if (allDone) {
-          resolve();
-        } else {
-          requestAnimationFrame(tick);
-        }
-      };
-      requestAnimationFrame(tick);
+    try {
+      const insertStartTime = performance.now();
+      await new Promise((resolve) => {
+        const tick = (now) => {
+          const elapsed = now - insertStartTime;
+          let allDone = true;
+          insertFlyParams.forEach((fp) => {
+            const dist = Math.hypot(
+              fp.targetRect.left - fp.startRect.left,
+              fp.targetRect.top - fp.startRect.top
+            );
+            const distFactor = Math.max(0.8, Math.min(1.2, dist / 450));
+            const duration = DURATION_BASE * distFactor;
+            const rawProgress = Math.min(1, elapsed / duration);
+            const eased = 1 - Math.pow(1 - rawProgress, 3);
+            const cx = fp.startRect.left + (fp.targetRect.left - fp.startRect.left) * eased;
+            const cy = fp.startRect.top + (fp.targetRect.top - fp.startRect.top) * eased;
+            const cw = fp.startRect.width + (fp.targetRect.width - fp.startRect.width) * eased;
+            const ch = fp.startRect.height + (fp.targetRect.height - fp.startRect.height) * eased;
+            fp.clone.style.transform = `translate(${cx - fp.startRect.left}px, ${cy - fp.startRect.top}px)`;
+            fp.clone.style.width = `${cw}px`;
+            fp.clone.style.height = `${ch}px`;
+            fp.clone.style.boxShadow = this.getMultiDragInsertionShadow(eased);
+            if (rawProgress < 1)
+              allDone = false;
+          });
+          if (allDone) {
+            resolve();
+          } else {
+            requestAnimationFrame(tick);
+          }
+        };
+        requestAnimationFrame(tick);
+      });
+    } finally {
+      insertFlyParams.forEach((fp) => fp.clone.remove());
+      overlay.remove();
+    }
+    orderedEls.forEach((el) => {
+      el.style.setProperty("opacity", "1", "important");
     });
     pendingIds.clear();
-    insertFlyParams.forEach((fp) => fp.clone.remove());
     orderedEls.forEach((el) => {
       el.style.transition = "";
       el.removeClass("is-multidrag-slot");
@@ -5728,10 +5736,14 @@ ${vcBody}` : fm;
                     this._multiDragState.pendingInsertionRoomRects = roomLayout.rects;
                     slotRoomEls = roomLayout.ids.map((id) => this.boardEl.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`)).filter(Boolean);
                   }
-                  await this.playMultiDragInsertion(fallback, evt.item, orderedEls);
+                  if (evt.from !== evt.to) {
+                    await this.playMultiDragInsertion(fallback, evt.item, orderedEls);
+                  }
                   this.commitMultiDragFinalOrder(evt.to, activeIds, evt.item);
-                  this.clearMultiDragInsertionSlotLayout(orderedEls);
-                  this.clearMultiDragInsertionSlotLayout(slotRoomEls);
+                  if (evt.from !== evt.to) {
+                    this.clearMultiDragInsertionSlotLayout(orderedEls);
+                    this.clearMultiDragInsertionSlotLayout(slotRoomEls);
+                  }
                   orderedEls.forEach((el) => {
                     el.style.visibility = "";
                   });

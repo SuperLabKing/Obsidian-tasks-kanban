@@ -833,6 +833,8 @@ class KanbanView extends BasesView {
           fallback.style.overflow = '';
           fallback.style.pointerEvents = '';
       }
+      // Safety: remove any lingering overlays from interrupted animation
+      document.querySelectorAll('.kanban-multidrag-overlay').forEach((el) => el.remove());
   }
 
   private applyMultiDragPhaseVisibility(phase: 'extracting' | 'dragging' | 'inserting', fallback: HTMLElement | null, sourceEls: HTMLElement[] = [], slotEls: HTMLElement[] = []) {
@@ -925,7 +927,7 @@ class KanbanView extends BasesView {
       const revealedIds = new Set<string>();
       const finalVisibleIds = getMultiDragAnchoredPreviewIds(orderedIds, draggedId);
       // 计算所有克隆体的动画参数 — 统一 rAF 同时驱动
-      const DURATION_BASE = 360;
+      const DURATION_BASE = 600;
       const flyParams = sources.map(({ sourceEl, rect, id }, index) => {
           sourceEl.addClass('is-multidrag-source');
           const flyClone = this.createFlyClone(sourceEl, rect);
@@ -960,7 +962,7 @@ class KanbanView extends BasesView {
                       liveTargetRect.left - fp.startLeft,
                       (liveTargetRect.top + fp.offsetY) - fp.startTop
                   );
-                  const distFactor = Math.max(0.7, Math.min(1.4, dist / 400));
+                  const distFactor = Math.max(0.8, Math.min(1.2, dist / 500));
                   const duration = DURATION_BASE * distFactor;
                   const rawProgress = Math.min(1, elapsed / duration);
                   const eased = 1 - Math.pow(1 - rawProgress, 3);
@@ -1171,14 +1173,14 @@ class KanbanView extends BasesView {
           el.dataset.multidragKeepTransformUntilCommit = 'true';
       });
 
-      // === PHASE 1: Immediately show real cards at their target positions ===
+      // === PHASE 1: Position real cards at targets (keep them hidden during fly animation) ===
       // Move existing room cards to make space
       this.applyMultiDragInsertionSlotLayout(slotRoomEls, slotRoomRects);
       // Position real cards at target locations
       this.applyMultiDragInsertionSlotLayout(orderedEls, targetRects);
-      // Force real cards visible — no animation hiding
+      // Hide real cards so fly animation is visible — they'll be revealed after animation
       orderedEls.forEach((el) => {
-          el.style.setProperty('opacity', '1', 'important');
+          el.style.setProperty('opacity', '0', 'important');
           el.style.setProperty('visibility', 'visible', 'important');
           el.removeClass('is-multidrag-source');
       });
@@ -1203,7 +1205,7 @@ class KanbanView extends BasesView {
 
       const pendingIds = new Set(orderedIds);
       // 收集所有飞行参数 — 统一 rAF 同时驱动
-      const DURATION_BASE = 360;
+      const DURATION_BASE = 600;
       const insertFlyParams = orderedEls.map((leavingEl, index) => {
           const targetRect = targetRects[index] || this.snapshotRect(leavingEl);
           const visibleIds = getMultiDragAnchoredPreviewIds(orderedIds.filter((candidateId) => pendingIds.has(candidateId)), item.dataset.id || '');
@@ -1231,48 +1233,57 @@ class KanbanView extends BasesView {
           startRect: RectSnapshot; targetRect: RectSnapshot; layerIndex: number;
       }>;
 
-      // 统一 rAF loop — 所有卡片同时从堆叠飞向目标
-      const insertStartTime = performance.now();
-      await new Promise<void>(resolve => {
-          const tick = (now: number) => {
-              const elapsed = now - insertStartTime;
-              let allDone = true;
+      try {
+          // 统一 rAF loop — 所有卡片同时从堆叠飞向目标
+          const insertStartTime = performance.now();
+          await new Promise<void>(resolve => {
+              const tick = (now: number) => {
+                  const elapsed = now - insertStartTime;
+                  let allDone = true;
 
-              insertFlyParams.forEach(fp => {
-                  const dist = Math.hypot(
-                      fp.targetRect.left - fp.startRect.left,
-                      fp.targetRect.top - fp.startRect.top
-                  );
-                  const distFactor = Math.max(0.7, Math.min(1.5, dist / 350));
-                  const duration = DURATION_BASE * distFactor;
-                  const rawProgress = Math.min(1, elapsed / duration);
-                  const eased = 1 - Math.pow(1 - rawProgress, 3);
+                  insertFlyParams.forEach(fp => {
+                      const dist = Math.hypot(
+                          fp.targetRect.left - fp.startRect.left,
+                          fp.targetRect.top - fp.startRect.top
+                      );
+                      const distFactor = Math.max(0.8, Math.min(1.2, dist / 450));
+                      const duration = DURATION_BASE * distFactor;
+                      const rawProgress = Math.min(1, elapsed / duration);
+                      const eased = 1 - Math.pow(1 - rawProgress, 3);
 
-                  const cx = fp.startRect.left + (fp.targetRect.left - fp.startRect.left) * eased;
-                  const cy = fp.startRect.top + (fp.targetRect.top - fp.startRect.top) * eased;
-                  const cw = fp.startRect.width + (fp.targetRect.width - fp.startRect.width) * eased;
-                  const ch = fp.startRect.height + (fp.targetRect.height - fp.startRect.height) * eased;
+                      const cx = fp.startRect.left + (fp.targetRect.left - fp.startRect.left) * eased;
+                      const cy = fp.startRect.top + (fp.targetRect.top - fp.startRect.top) * eased;
+                      const cw = fp.startRect.width + (fp.targetRect.width - fp.startRect.width) * eased;
+                      const ch = fp.startRect.height + (fp.targetRect.height - fp.startRect.height) * eased;
 
-                  fp.clone.style.transform = `translate(${cx - fp.startRect.left}px, ${cy - fp.startRect.top}px)`;
-                  fp.clone.style.width = `${cw}px`;
-                  fp.clone.style.height = `${ch}px`;
-                  fp.clone.style.boxShadow = this.getMultiDragInsertionShadow(eased);
+                      fp.clone.style.transform = `translate(${cx - fp.startRect.left}px, ${cy - fp.startRect.top}px)`;
+                      fp.clone.style.width = `${cw}px`;
+                      fp.clone.style.height = `${ch}px`;
+                      fp.clone.style.boxShadow = this.getMultiDragInsertionShadow(eased);
 
-                  if (rawProgress < 1) allDone = false;
-              });
+                      if (rawProgress < 1) allDone = false;
+                  });
 
-              if (allDone) {
-                  resolve();
-              } else {
-                  requestAnimationFrame(tick);
-              }
-          };
-          requestAnimationFrame(tick);
+                  if (allDone) {
+                      resolve();
+                  } else {
+                      requestAnimationFrame(tick);
+                  }
+              };
+              requestAnimationFrame(tick);
+          });
+      } finally {
+          // 无论如何清理飞行克隆体和 overlay
+          insertFlyParams.forEach(fp => fp.clone.remove());
+          overlay.remove();
+      }
+
+      // Reveal real cards now that fly animation is complete
+      orderedEls.forEach((el) => {
+          el.style.setProperty('opacity', '1', 'important');
       });
 
-      // 清理
       pendingIds.clear();
-      insertFlyParams.forEach(fp => fp.clone.remove());
 
       // === PHASE 3: Cleanup animation artifacts only ===
       // Keep transforms on orderedEls so cards stay at visual positions.
@@ -2351,10 +2362,14 @@ class KanbanView extends BasesView {
                                         .map((id) => this.boardEl.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`) as HTMLElement | null)
                                         .filter(Boolean) as HTMLElement[];
                                 }
-                                await this.playMultiDragInsertion(fallback, evt.item as HTMLElement, orderedEls);
+                                if (evt.from !== evt.to) {
+                                    await this.playMultiDragInsertion(fallback, evt.item as HTMLElement, orderedEls);
+                                }
                                 this.commitMultiDragFinalOrder(evt.to as HTMLElement, activeIds as string[], evt.item as HTMLElement);
-                                this.clearMultiDragInsertionSlotLayout(orderedEls);
-                                this.clearMultiDragInsertionSlotLayout(slotRoomEls);
+                                if (evt.from !== evt.to) {
+                                    this.clearMultiDragInsertionSlotLayout(orderedEls);
+                                    this.clearMultiDragInsertionSlotLayout(slotRoomEls);
+                                }
                                 orderedEls.forEach((el) => {
                                     el.style.visibility = '';
                                 });
