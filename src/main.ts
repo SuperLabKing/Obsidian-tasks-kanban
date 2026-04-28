@@ -1196,9 +1196,10 @@ class KanbanView extends BasesView {
       }
       if (!baseRect) { console.log('[kanban] NO baseRect — returning early'); return; }
 
-      const targetRects = state?.pendingInsertionRects && state.pendingInsertionRects.length === orderedEls.length
-          ? state.pendingInsertionRects
-          : orderedEls.map((el) => this.snapshotRect(el));
+      // Get target rects by snapshotting the real cards in their CURRENT DOM positions.
+      // (measureMultiDragTargetRects gives viewport coordinates relative to a hidden
+      // measurement container at left:-20000px — useless for fly animation.)
+      const targetRects = orderedEls.map((el) => this.snapshotRect(el));
       const orderedIds = state?.orderedIds ?? orderedEls.map((el) => el.dataset.id || '');
 
       // Move room cards to make space

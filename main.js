@@ -4291,7 +4291,7 @@ var KanbanView = class extends BasesView2 {
         console.log("[kanban] NO baseRect \u2014 returning early");
         return;
       }
-      const targetRects = (state == null ? void 0 : state.pendingInsertionRects) && state.pendingInsertionRects.length === orderedEls.length ? state.pendingInsertionRects : orderedEls.map((el) => this.snapshotRect(el));
+      const targetRects = orderedEls.map((el) => this.snapshotRect(el));
       const orderedIds = (_e = state == null ? void 0 : state.orderedIds) != null ? _e : orderedEls.map((el) => el.dataset.id || "");
       const slotRoomIds = (_f = state == null ? void 0 : state.pendingInsertionRoomIds) != null ? _f : [];
       const slotRoomRects = (_g = state == null ? void 0 : state.pendingInsertionRoomRects) != null ? _g : [];
