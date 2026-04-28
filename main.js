@@ -3931,6 +3931,7 @@ var KanbanView = class extends BasesView2 {
     this.boardEl.querySelectorAll(".is-hidden-by-multidrag").forEach((el) => el.classList.remove("is-hidden-by-multidrag"));
     const fallback = document.querySelector(".kanban-card-fallback");
     if (fallback) {
+      fallback.querySelectorAll(".kanban-multidrag-stack-card, .kanban-multidrag-badge").forEach((el) => el.remove());
       fallback.removeClass("is-multidrag-stack");
       fallback.style.opacity = "";
       fallback.style.overflow = "";
@@ -4270,9 +4271,6 @@ var KanbanView = class extends BasesView2 {
       el.dataset.multidragKeepTransformUntilCommit = "true";
     });
     this.applyMultiDragInsertionSlotLayout(slotRoomEls, slotRoomRects);
-    orderedEls.forEach((el) => {
-      el.removeClass("is-multidrag-source");
-    });
     const overlay = document.createElement("div");
     overlay.className = "kanban-multidrag-overlay";
     document.body.appendChild(overlay);
@@ -5491,6 +5489,9 @@ ${vcBody}` : fm;
           setData: function(dataTransfer, dragEl2) {
           },
           onStart: (evt) => {
+            this._multiDragState = null;
+            this._dragOriginalOrder = [];
+            document.querySelectorAll(".kanban-multidrag-overlay").forEach((el) => el.remove());
             this.boardEl.addClass("is-dragging-card");
             const item = evt.item;
             const draggedId = item.dataset.id;

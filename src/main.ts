@@ -828,6 +828,7 @@ class KanbanView extends BasesView {
       this.boardEl.querySelectorAll('.is-hidden-by-multidrag').forEach((el: Element) => el.classList.remove('is-hidden-by-multidrag'));
       const fallback = document.querySelector('.kanban-card-fallback') as HTMLElement | null;
       if (fallback) {
+          fallback.querySelectorAll('.kanban-multidrag-stack-card, .kanban-multidrag-badge').forEach((el: Element) => el.remove());
           fallback.removeClass('is-multidrag-stack');
           fallback.style.opacity = '';
           fallback.style.overflow = '';
@@ -1176,13 +1177,10 @@ class KanbanView extends BasesView {
       });
       this.applyMultiDragInsertionSlotLayout(slotRoomEls, slotRoomRects);
 
-      // DO NOT apply slot layout to orderedEls — keep them at their current (extraction) positions.
-      // We only dim them so the fly clones are visible against the background.
-      // orderedEls have been hidden by the caller via applyMultiDragPhaseVisibility('inserting', ...).
-      // But we need to ensure they don't have is-multidrag-source class (from extraction phase).
-      orderedEls.forEach((el) => {
-          el.removeClass('is-multidrag-source');
-      });
+      // Keep orderedEls hidden via is-multidrag-source CSS class (set during extraction).
+      // DO NOT remove is-multidrag-source here — that would make real cards visible
+      // during the fly animation, creating the illusion that cards "instantly appear".
+      // clearMultiDragVisualState() in onEnd's finally block handles the cleanup.
 
       // === Fly animation: clones depart from stack and fly to target positions ===
       const overlay = document.createElement('div');
@@ -2119,6 +2117,11 @@ class KanbanView extends BasesView {
                     // 阻止默认行为
                 },
                 onStart: (evt: any) => {
+                    // Safety: clear residual multidrag state from any interrupted previous drag
+                    this._multiDragState = null;
+                    this._dragOriginalOrder = [];
+                    document.querySelectorAll('.kanban-multidrag-overlay').forEach((el: Element) => el.remove());
+
                     this.boardEl.addClass("is-dragging-card");
                     const item = evt.item as HTMLElement;
                     const draggedId = item.dataset.id;
