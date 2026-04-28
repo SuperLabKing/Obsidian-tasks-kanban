@@ -922,19 +922,23 @@ class KanbanView extends BasesView {
           sourceEls.push(sourceEl);
           return { sourceEl, rect, id, index };
       }).filter(Boolean) as Array<{ sourceEl: HTMLElement; rect: RectSnapshot; id: string; index: number }>;
+
+      // Early exit if no non-dragged cards to extract
+      if (sources.length === 0) return;
+
       this.applyMultiDragPhaseVisibility('extracting', fallback, []);
       this.buildMultiDragPreview(fallback, item, orderedIds, draggedId, getMultiDragExtractionPreviewIds(orderedIds, 0, draggedId));
       await this.nextFrame();
       const revealedIds = new Set<string>();
       const finalVisibleIds = getMultiDragAnchoredPreviewIds(orderedIds, draggedId);
-      // 计算所有克隆体的动画参数 — 统一 rAF 同时驱动
-      const DURATION_BASE = 600;
+
+      // Build fly params — start at source rect, go to live target rect
+      const DURATION_BASE = 800;
       const flyParams = sources.map(({ sourceEl, rect, id }, index) => {
           sourceEl.addClass('is-multidrag-source');
           const flyClone = this.createFlyClone(sourceEl, rect);
           flyClone.style.boxShadow = this.getMultiDragExtractionShadow(0);
-          flyClone.style.transitionProperty = 'box-shadow';
-          flyClone.style.transitionDuration = '260ms';
+          flyClone.style.transition = 'box-shadow 260ms cubic-bezier(.22,1,.36,1)';
           overlay.appendChild(flyClone);
           const finalLayerIndex = finalVisibleIds.indexOf(id);
           const profile = getMultiDragExtractionLayerMotionProfile(finalVisibleIds.length, finalLayerIndex === -1 ? finalVisibleIds.length - 1 : finalLayerIndex);
@@ -950,7 +954,7 @@ class KanbanView extends BasesView {
           };
       });
 
-      // 统一 rAF loop — 所有卡片同时运动
+      // Unified rAF loop — all cards move simultaneously, easeOutQuart for smooth deceleration
       const startTime = performance.now();
       await new Promise<void>(resolve => {
           const tick = (now: number) => {
@@ -963,10 +967,12 @@ class KanbanView extends BasesView {
                       liveTargetRect.left - fp.startLeft,
                       (liveTargetRect.top + fp.offsetY) - fp.startTop
                   );
-                  const distFactor = Math.max(0.8, Math.min(1.2, dist / 500));
+                  // Distance-based speed: farther = faster, but capped
+                  const distFactor = Math.max(0.6, Math.min(1.0, dist / 600));
                   const duration = DURATION_BASE * distFactor;
                   const rawProgress = Math.min(1, elapsed / duration);
-                  const eased = 1 - Math.pow(1 - rawProgress, 3);
+                  // easeOutQuart: stronger deceleration approaching target
+                  const eased = 1 - Math.pow(1 - rawProgress, 4);
 
                   const cx = fp.startLeft + (liveTargetRect.left - fp.startLeft) * eased;
                   const cy = fp.startTop + (liveTargetRect.top + fp.offsetY - fp.startTop) * eased;
@@ -990,7 +996,7 @@ class KanbanView extends BasesView {
           requestAnimationFrame(tick);
       });
 
-      // 清理克隆体 + 重建堆叠预览（所有卡片已到达）
+      // Cleanup clones + rebuild stack preview
       flyParams.forEach(fp => fp.clone.remove());
       revealedIds.clear();
       sources.forEach(({ id }) => revealedIds.add(id));
@@ -1165,7 +1171,7 @@ class KanbanView extends BasesView {
           : orderedEls.map((el) => this.snapshotRect(el));
       const orderedIds = state?.orderedIds ?? orderedEls.map((el) => el.dataset.id || '');
 
-      // Move room cards to make space (existing cards not part of this drag)
+      // Move room cards to make space
       const slotRoomIds = state?.pendingInsertionRoomIds ?? [];
       const slotRoomRects = state?.pendingInsertionRoomRects ?? [];
       const slotRoomEls = slotRoomIds
@@ -1177,21 +1183,24 @@ class KanbanView extends BasesView {
       });
       this.applyMultiDragInsertionSlotLayout(slotRoomEls, slotRoomRects);
 
-      // Keep orderedEls hidden via is-multidrag-source CSS class (set during extraction).
-      // DO NOT remove is-multidrag-source here — that would make real cards visible
-      // during the fly animation, creating the illusion that cards "instantly appear".
-      // clearMultiDragVisualState() in onEnd's finally block handles the cleanup.
+      // Use dragRect from state as the stack position — more reliable than snapshotRect(fallback)
+      // because fallback may have been moved by SortableJS while we're in onEnd.
+      const dragRect = state?.dragRect;
+      if (!dragRect) {
+          // No stack position known — skip animation
+          this.clearMultiDragInsertionSlotLayout(slotRoomEls);
+          return;
+      }
 
-      // === Fly animation: clones depart from stack and fly to target positions ===
+      // Create overlay for fly clones
       const overlay = document.createElement('div');
       overlay.className = 'kanban-multidrag-overlay';
       document.body.appendChild(overlay);
 
-      // Update fallback visual for the insertion preview
+      // Update fallback visual
       this.applyMultiDragPhaseVisibility('inserting', fallback, orderedEls);
       if (fallback) {
-          const s = this._multiDragState;
-          if (s) fallback.style.width = `${s.dragRect.width}px`;
+          fallback.style.width = `${dragRect.width}px`;
       }
       this.buildMultiDragPreview(
           fallback,
@@ -1202,26 +1211,23 @@ class KanbanView extends BasesView {
       );
       await this.nextFrame();
 
-      // Build fly param list — start from stack (fallback rect + layer offset), go to target rects
+      // Build fly params: depart from stack (dragRect + layer offset), fly to target rects
       const pendingIds = new Set(orderedIds);
-      const DURATION_BASE = 600;
+      const DURATION_BASE = 800;
       const insertFlyParams = orderedEls.map((leavingEl, index) => {
           const targetRect = targetRects[index] || this.snapshotRect(leavingEl);
           const visibleIds = getMultiDragAnchoredPreviewIds(orderedIds.filter((candidateId) => pendingIds.has(candidateId)), item.dataset.id || '');
-          const baseRect = fallback ? this.snapshotRect(fallback) : state?.dragRect;
-          if (!baseRect) return null;
           const layerIndex = visibleIds.indexOf(leavingEl.dataset.id || '');
           const profile = getMultiDragLayerMotionProfile(visibleIds.length, layerIndex === -1 ? visibleIds.length - 1 : layerIndex);
           const startRect: RectSnapshot = {
-              left: baseRect.left,
-              top: baseRect.top + profile.offsetY,
-              width: baseRect.width,
-              height: baseRect.height,
+              left: dragRect.left,
+              top: dragRect.top + profile.offsetY,
+              width: dragRect.width,
+              height: dragRect.height,
           };
           const flyClone = this.createFlyClone(leavingEl, startRect);
           flyClone.style.boxShadow = this.getMultiDragInsertionShadow(0);
-          flyClone.style.transitionProperty = 'box-shadow';
-          flyClone.style.transitionDuration = '260ms';
+          flyClone.style.transition = 'box-shadow 260ms cubic-bezier(.22,1,.36,1)';
           flyClone.style.transform = 'translate(0px, 0px)';
           overlay.appendChild(flyClone);
           return {
@@ -1231,6 +1237,12 @@ class KanbanView extends BasesView {
           clone: HTMLElement; leavingEl: HTMLElement; index: number;
           startRect: RectSnapshot; targetRect: RectSnapshot; layerIndex: number;
       }>;
+
+      if (insertFlyParams.length === 0) {
+          overlay.remove();
+          this.clearMultiDragInsertionSlotLayout(slotRoomEls);
+          return;
+      }
 
       try {
           const insertStartTime = performance.now();
@@ -1244,10 +1256,12 @@ class KanbanView extends BasesView {
                           fp.targetRect.left - fp.startRect.left,
                           fp.targetRect.top - fp.startRect.top
                       );
-                      const distFactor = Math.max(0.8, Math.min(1.2, dist / 450));
+                      // Distance-based speed: farther = slightly faster, but tight range
+                      const distFactor = Math.max(0.6, Math.min(1.0, dist / 600));
                       const duration = DURATION_BASE * distFactor;
                       const rawProgress = Math.min(1, elapsed / duration);
-                      const eased = 1 - Math.pow(1 - rawProgress, 3);
+                      // easeOutQuart: stronger deceleration as cards approach target
+                      const eased = 1 - Math.pow(1 - rawProgress, 4);
 
                       const cx = fp.startRect.left + (fp.targetRect.left - fp.startRect.left) * eased;
                       const cy = fp.startRect.top + (fp.targetRect.top - fp.startRect.top) * eased;
@@ -1276,9 +1290,6 @@ class KanbanView extends BasesView {
       }
 
       pendingIds.clear();
-
-      // Cleanup: clear transforms/classes on room cards.
-      // orderedEls transforms are managed by caller (clearMultiDragInsertionSlotLayout).
       this.clearMultiDragInsertionSlotLayout(slotRoomEls);
       if (state) {
           state.pendingInsertionRects = undefined;
