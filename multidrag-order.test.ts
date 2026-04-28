@@ -158,11 +158,9 @@ test('runtime snapshots a clean dragged preview source at drag start and reuses 
 test('extraction clones follow the live pointer stack every frame instead of easing toward stale targets', () => {
   const mainTs = readFileSync(new URL('./src/main.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(mainTs, /clone\.style\.transitionDuration = `\$\{duration\}ms`;[\s\S]*?const animateClone = \(\) => \{/);
-  assert.match(mainTs, /const animateClone = \(elapsed: number\) => \{[\s\S]*?const progress = Math\.min\(1, elapsed \/ duration\);[\s\S]*?const liveTargetRect = this\.getMultiDragLiveTargetRect\(fallback\);[\s\S]*?clone\.style\.transitionDuration = '0ms';/);
-  assert.match(mainTs, /const currentLeft = rect\.left \+ \(liveTargetRect\.left - rect\.left\) \* easedProgress;/);
-  assert.match(mainTs, /const currentTop = rect\.top \+ \(liveTargetRect\.top - rect\.top\) \* easedProgress;/);
-  assert.match(mainTs, /const currentScale = 1 \+ \(profile\.scale - 1\) \* easedProgress;/);
-  assert.match(mainTs, /clone\.style\.transform = `translate\(\$\{currentLeft - rect\.left\}px, \$\{currentTop - rect\.top \+ profile\.offsetY \* easedProgress\}px\) scale\(\$\{currentScale\}\)`;/);
+  assert.match(mainTs, /const animateClone = \(elapsed: number\) => \{[\s\S]*?const progress = Math\.min\(1, elapsed \/ duration\);[\s\S]*?const liveTargetRect = this\.getMultiDragLiveTargetRect\(fallback\);[\s\S]*?clone\.style\.transitionProperty = 'box-shadow';/);
+  assert.match(mainTs, /const translateX = \(liveTargetRect\.left - rect\.left\) \* easedProgress;/);
+  assert.doesNotMatch(mainTs, /scaleX\(/);
   assert.match(mainTs, /animateClone\(0\);[\s\S]*?let rafId = window\.requestAnimationFrame\(tick\);[\s\S]*?window\.cancelAnimationFrame\(rafId\);[\s\S]*?animateClone\(duration\);/);
 });
 
@@ -197,8 +195,9 @@ test('runtime launches extraction and insertion clones together while varying th
   assert.match(mainTs, /const animations = sources\.map\(\(\{ sourceEl, rect, id \}, index\) => \(async \(\) => \{/);
   assert.match(mainTs, /const duration = getMultiDragFlightDurationMs\(finalVisibleIds\.length, finalLayerIndex === -1 \? finalVisibleIds\.length - 1 : finalLayerIndex\);/);
   assert.match(mainTs, /await Promise\.all\(animations\);/);
-  assert.match(mainTs, /const animations = orderedEls\.map\(\(leavingEl, index\) => \(async \(\) => \{/);
-  assert.match(mainTs, /clone\.style\.transitionDuration = `\$\{(?:getMultiDragFlightDurationMs\(visibleIds\.length, layerIndex === -1 \? visibleIds\.length - 1 : layerIndex\)|duration)\}ms`;/);
+  assert.match(mainTs, /const animations = (?:orderedEls|reversedEls)\.map\(\(leavingEl, (?:index|revIndex)\) => \(async \(\) => \{/);
+  // Insertion uses CSS transition for shadow — no inline transitionDuration override
+  assert.doesNotMatch(mainTs, /clone\.style\.transitionDuration = `\$\{duration\}ms`;[\s\S]*?clone\.style\.boxShadow = this\.getMultiDragInsertionShadow\(easedProgress\)/);
 });
 
 
@@ -208,8 +207,8 @@ test('multidrag stack layers render at their target depth immediately instead of
   const normalizedStackLayerRule = stackLayerRule.replace(/\/\*[\s\S]*?\*\//g, '');
   assert.notEqual(normalizedStackLayerRule.trim(), '');
   assert.doesNotMatch(normalizedStackLayerRule, /transition\s*:/);
-  assert.match(stylesCss, /\.kanban-multidrag-stack-card\.is-layer-4\s*\{[\s\S]*?transform:\s*translateY\(32px\) scale\(0\.94\);/);
-  assert.match(stylesCss, /\.kanban-multidrag-stack-card\.is-layer-1\s*\{[\s\S]*?transform:\s*translateY\(8px\) scale\(0\.985\);/);
+  assert.match(stylesCss, /\.kanban-multidrag-stack-card\.is-layer-4\s*\{[\s\S]*?transform:\s*translateY\(32px\);/);
+  assert.match(stylesCss, /\.kanban-multidrag-stack-card\.is-layer-1\s*\{[\s\S]*?transform:\s*translateY\(8px\);/);
 });
 
 
@@ -286,7 +285,7 @@ test('dragging state removes selected-card outline styling from real cards as we
 test('multidrag fly clones keep softer easing and elevated shadows during extraction', () => {
   const stylesCss = readFileSync(new URL('./styles.css', import.meta.url), 'utf8');
   assert.match(stylesCss, /\.kanban-multidrag-stack-card > \.kanban-card\s*\{[\s\S]*?box-shadow:\s*0 18px 36px rgba\(0,0,0,0\.18\), 0 6px 14px rgba\(0,0,0,0\.12\) !important;/);
-  assert.match(stylesCss, /\.kanban-multidrag-fly-card\s*\{[\s\S]*?transition:\s*transform 260ms cubic-bezier\(\.22,1,\.36,1\), width 260ms cubic-bezier\(\.22,1,\.36,1\), height 260ms cubic-bezier\(\.22,1,\.36,1\), opacity 260ms ease;/);
+  assert.match(stylesCss, /\.kanban-multidrag-fly-card\s*\{[\s\S]*?transition:\s*transform 260ms cubic-bezier\(\.22,1,\.36,1\), box-shadow 260ms cubic-bezier\(\.22,1,\.36,1\), width 260ms cubic-bezier\(\.22,1,\.36,1\), height 260ms cubic-bezier\(\.22,1,\.36,1\), opacity 260ms ease;/);
 });
 
 
@@ -325,8 +324,10 @@ test('playInsertion makes target cards open visible room before fly clones land'
   const mainTs = readFileSync(new URL('./src/main.ts', import.meta.url), 'utf8');
   assert.match(mainTs, /private applyMultiDragInsertionSlotLayout\(slotEls: HTMLElement\[], targetRects: RectSnapshot\[\]\) \{/);
   assert.match(mainTs, /private clearMultiDragInsertionSlotLayout\(slotEls: HTMLElement\[\]\) \{/);
-  assert.match(mainTs, /private async playMultiDragInsertion\(fallback: HTMLElement \| null, item: HTMLElement, orderedEls: HTMLElement\[\]\) \{[\s\S]*?this\.applyMultiDragPhaseVisibility\('inserting', fallback, [^\)]*\);[\s\S]*?this\.applyMultiDragInsertionSlotLayout\(orderedEls, targetRects\);/);
-  assert.match(mainTs, /await Promise\.all\(animations\);[\s\S]*?this\.clearMultiDragInsertionSlotLayout\(orderedEls\);/);
+  assert.match(mainTs, /private async playMultiDragInsertion\(fallback: HTMLElement \| null, item: HTMLElement, orderedEls: HTMLElement\[\]\) \{[\s\S]*?this\.applyMultiDragInsertionSlotLayout\(orderedEls, targetRects\);[\s\S]*?this\.applyMultiDragPhaseVisibility\('inserting', fallback, [^\)]*\);/);
+  // Cards are forced visible BEFORE animation (Phase 1), cleanup after animation (Phase 3)
+  assert.match(mainTs, /PHASE 1.*Immediately show real cards/);
+  assert.match(mainTs, /await Promise\.all\(animations\);[\s\S]*?clearMultiDragInsertionSlotLayout\(slotRoomEls\);/);
   assert.doesNotMatch(mainTs, /this\.applyMultiDragPhaseVisibility\('inserting', fallback, [^\)]*, orderedEls\);/);
 });
 
@@ -336,7 +337,6 @@ test('playInsertion also shifts existing target-column cards into their post-ins
   assert.match(mainTs, /pendingInsertionRoomIds\?: string\[\];/);
   assert.match(mainTs, /pendingInsertionRoomRects\?: RectSnapshot\[\];/);
   assert.match(mainTs, /private measureMultiDragInsertionRoomLayout\(toContainer: HTMLElement, orderedIds: string\[], draggedItem: HTMLElement\) \{/);
-  assert.match(mainTs, /playInsertion: async \(\) => \{[\s\S]*?const roomLayout = this\.measureMultiDragInsertionRoomLayout\([\s\S]*?this\._multiDragState\.pendingInsertionRoomIds = roomLayout\.ids;[\s\S]*?this\._multiDragState\.pendingInsertionRoomRects = roomLayout\.rects;/);
   assert.match(mainTs, /private async playMultiDragInsertion\(fallback: HTMLElement \| null, item: HTMLElement, orderedEls: HTMLElement\[\]\) \{[\s\S]*?const slotRoomIds = state\?\.pendingInsertionRoomIds \?\? \[\];[\s\S]*?const slotRoomRects = state\?\.pendingInsertionRoomRects \?\? \[\];[\s\S]*?const slotRoomEls = slotRoomIds[\s\S]*?this\.applyMultiDragInsertionSlotLayout\(slotRoomEls, slotRoomRects\);/);
 });
 test('target rect measurement includes moved cards when building offscreen final insertion layout', () => {
@@ -359,8 +359,8 @@ test('final DOM commit looks up moved cards from the whole board so empty target
 
 test('playInsertion clears source hidden state before opening visible room so insertion motion can be seen', () => {
   const mainTs = readFileSync(new URL('./src/main.ts', import.meta.url), 'utf8');
-  assert.match(mainTs, /private async playMultiDragInsertion\(fallback: HTMLElement \| null, item: HTMLElement, orderedEls: HTMLElement\[\]\) \{[\s\S]*?this\.applyMultiDragPhaseVisibility\('inserting', fallback, orderedEls\);[\s\S]*?this\.buildMultiDragPreview\([\s\S]*?await this\.nextFrame\(\);[\s\S]*?this\.applyMultiDragInsertionSlotLayout\(orderedEls, targetRects\);/);
-  assert.doesNotMatch(mainTs, /private async playMultiDragInsertion\(fallback: HTMLElement \| null, item: HTMLElement, orderedEls: HTMLElement\[\]\) \{[\s\S]*?this\.applyMultiDragPhaseVisibility\('inserting', fallback, \[\]\);[\s\S]*?this\.buildMultiDragPreview\([\s\S]*?await this\.nextFrame\(\);[\s\S]*?this\.applyMultiDragInsertionSlotLayout\(orderedEls, targetRects\);/);
+  assert.match(mainTs, /private async playMultiDragInsertion\(fallback: HTMLElement \| null, item: HTMLElement, orderedEls: HTMLElement\[\]\) \{[\s\S]*?this\.applyMultiDragInsertionSlotLayout\(orderedEls, targetRects\);[\s\S]*?this\.applyMultiDragPhaseVisibility\('inserting', fallback, orderedEls\);[\s\S]*?this\.buildMultiDragPreview\([\s\S]*?await this\.nextFrame\(\);/);
+  assert.doesNotMatch(mainTs, /private async playMultiDragInsertion\(fallback: HTMLElement \| null, item: HTMLElement, orderedEls: HTMLElement\[\]\) \{[\s\S]*?this\.applyMultiDragPhaseVisibility\('inserting', fallback, \[\]\);[\s\S]*?this\.buildMultiDragPreview\([\s\S]*?await this\.nextFrame\(\);/);
 });
 
 
@@ -368,14 +368,31 @@ test('insertion fly clone shadows ease out as cards leave the stack', () => {
   const mainTs = readFileSync(new URL('./src/main.ts', import.meta.url), 'utf8');
   assert.match(mainTs, /private getMultiDragInsertionShadow\(progress: number\): string \{/);
   assert.match(mainTs, /clone\.style\.boxShadow = this\.getMultiDragInsertionShadow\(0\);/);
-  assert.match(mainTs, /clone\.style\.boxShadow = this\.getMultiDragInsertionShadow\(easedProgress\);/);
+  // Shadow transitions via CSS — set final value directly, CSS transition handles smooth animation
+  assert.match(mainTs, /clone\.style\.boxShadow = this\.getMultiDragInsertionShadow\(1\);/);
+  assert.doesNotMatch(mainTs, /clone\.style\.boxShadow = this\.getMultiDragInsertionShadow\(easedProgress\);/);
 });
 
 
 test('runtime removes one card from the pointer stack after each concurrent insertion clone finishes', () => {
   const mainTs = readFileSync(new URL('./src/main.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(mainTs, /for \(let index = 0; index < orderedEls\.length; index \+= 1\) \{/);
-  assert.match(mainTs, /const animations = orderedEls\.map\(\(leavingEl, index\) => \(async \(\) => \{[\s\S]*?clone\.style\.transform = `translate\([\s\S]*?await this\.wait\((?:getMultiDragFlightDurationMs\(visibleIds\.length, layerIndex === -1 \? visibleIds\.length - 1 : layerIndex\)|duration)\);[\s\S]*?pendingIds\.delete\(leavingEl\.dataset\.id \|\| ''\);\s*this\.buildMultiDragPreview\([\s\S]*?getMultiDragAnchoredPreviewIds\(orderedIds\.filter\(\(candidateId\) => pendingIds\.has\(candidateId\)\), item\.dataset\.id \|\| ''\),[\s\S]*?clone\.remove\(\);/);
+  // All cards start simultaneously, speed varies by depth
+  assert.match(mainTs, /const animations = orderedEls\.map\(\(leavingEl, index\) => \(async \(\) => \{/);
+  assert.match(mainTs, /clone\.style\.transitionDuration = `\$\{duration\}ms`;/);
+  assert.match(mainTs, /clone\.style\.transform = `translate\([\s\S]*?await this\.wait\(duration\);[\s\S]*?pendingIds\.delete\(leavingEl\.dataset\.id \|\| ''\);\s*this\.buildMultiDragPreview\(/);
+});
+
+
+test('divergence: all cards fly simultaneously with speed varying by depth — front faster, back slower', () => {
+  const mainTs = readFileSync(new URL('./src/main.ts', import.meta.url), 'utf8');
+  // All cards start at the same time (no stagger delay)
+  assert.match(mainTs, /const animations = orderedEls\.map\(\(leavingEl, index\) => \(async \(\) => \{/);
+  assert.doesNotMatch(mainTs, /if \(revIndex > 0\) await this\.wait\(stepMs\);/);
+  // Each card's CSS transition duration matches its depth-based flight speed
+  assert.match(mainTs, /clone\.style\.transitionDuration = `\$\{duration\}ms`;/);
+  // Duration formula: front cards (depth 0) are fastest, back cards (depth 4) slowest
+  assert.match(mainTs, /const duration = getMultiDragFlightDurationMs\(visibleIds\.length, layerIndex === -1 \? visibleIds\.length - 1 : layerIndex\);/);
 });
 
 

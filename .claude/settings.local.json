@@ -17,7 +17,17 @@
       "Bash(rm:*)",
       "Bash(claude config:*)",
       "Read(//c/Users/罗宇峰/.config/claude/**)",
-      "Read(//c/Users/罗宇峰/AppData/Roaming/claude/**)"
+      "Read(//c/Users/罗宇峰/AppData/Roaming/claude/**)",
+      "Bash(node:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(git worktree:*)",
+      "Bash([ -f \".worktrees/multidrag-release-animation/package.json\" ])",
+      "Bash(npm install:*)",
+      "Bash(git:*)",
+      "Bash(npm:*)",
+      "Bash(python:*)",
+      "Bash(perl -ne 'print if $.>=720 && $.<=1220')",
+      "Bash(perl -ne 'print if $.>=390 && $.<=500')"
     ]
   }
 }

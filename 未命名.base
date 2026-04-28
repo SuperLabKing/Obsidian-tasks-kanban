@@ -1,6 +1,0 @@
-views:
-  - type: kanban-view
-    name: 任务管理
-    filters:
-      and:
-        - file.folder == "项目1文件"

@@ -40,24 +40,20 @@
   "currentViewId": "view-1",
   "dragLocked": false,
   "dragDelay": 0,
-  "globalHiddenColumns": [
-    "待分类任务"
-  ],
+  "globalHiddenColumns": [],
   "hiddenColumns": {
     "任务执行情况": [],
     "任务所属项目": [],
     "任务优先程度": [],
     "status": [],
     "任务阶段": [],
-    "执行进度": [
-      "待分类"
-    ],
+    "执行进度": [],
     "项目环节": []
   },
   "progressBarDisplay": "animated",
   "progressBarColor": "",
-  "progressBarAnimStyle": "shine",
-  "progressBarSpeed": 1.5,
+  "progressBarAnimStyle": "stripes",
+  "progressBarSpeed": 0.5,
   "progressBarTransitionDuration": 0.5,
   "pinnedDisplayAnimation": "slide",
   "styleCompletedCards": false,
@@ -119,7 +115,7 @@
     "蛋白质功能优化模型调研": 322,
     "待计划": 292,
     "待分类": 274,
-    "DNA 序列处理模型调研": 319
+    "DNA 序列处理模型调研": 282
   },
   "columnOrders": {
     "任务执行情况": [
@@ -162,7 +158,9 @@
       "待分类"
     ]
   },
-  "cardAliases": {},
+  "cardAliases": {
+    "项目1文件/未命名.md": "测试文件-1.7"
+  },
   "autoNumberGroups": [
     "任务所属项目",
     "项目环节"
@@ -285,6 +283,40 @@
         "enabled": false,
         "align": "left"
       }
+    ],
+    "项目环节": [
+      {
+        "id": "order",
+        "type": "order",
+        "propKey": "",
+        "name": "任务阶段(简写)",
+        "enabled": false,
+        "align": "left"
+      },
+      {
+        "id": "ctime",
+        "type": "ctime",
+        "propKey": "",
+        "name": "创建时间",
+        "enabled": false,
+        "align": "left"
+      },
+      {
+        "id": "project",
+        "type": "project",
+        "propKey": "",
+        "name": "所属项目",
+        "enabled": false,
+        "align": "right"
+      },
+      {
+        "id": "progress",
+        "type": "progress",
+        "propKey": "",
+        "name": "任务进度",
+        "enabled": false,
+        "align": "right"
+      }
     ]
   },
   "pinnedMetaConfigs": {
@@ -367,6 +399,32 @@
       }
     ],
     "执行进度": [
+      {
+        "id": "order",
+        "type": "order",
+        "propKey": "",
+        "name": "任务阶段(简写)",
+        "enabled": true,
+        "align": "left"
+      },
+      {
+        "id": "ctime",
+        "type": "ctime",
+        "propKey": "",
+        "name": "创建时间",
+        "enabled": true,
+        "align": "left"
+      },
+      {
+        "id": "project",
+        "type": "project",
+        "propKey": "",
+        "name": "所属项目",
+        "enabled": true,
+        "align": "right"
+      }
+    ],
+    "项目环节": [
       {
         "id": "order",
         "type": "order",

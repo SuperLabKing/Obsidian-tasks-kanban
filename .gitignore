@@ -1,3 +1,4 @@
 node_modules/
-node_modules/
 .worktrees/
+main.js
+data.json
