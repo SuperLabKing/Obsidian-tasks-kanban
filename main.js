@@ -4270,10 +4270,7 @@ var KanbanView = class extends BasesView2 {
       el.dataset.multidragKeepTransformUntilCommit = "true";
     });
     this.applyMultiDragInsertionSlotLayout(slotRoomEls, slotRoomRects);
-    this.applyMultiDragInsertionSlotLayout(orderedEls, targetRects);
     orderedEls.forEach((el) => {
-      el.style.setProperty("opacity", "0", "important");
-      el.style.setProperty("visibility", "visible", "important");
       el.removeClass("is-multidrag-source");
     });
     const overlay = document.createElement("div");
@@ -4281,9 +4278,9 @@ var KanbanView = class extends BasesView2 {
     document.body.appendChild(overlay);
     this.applyMultiDragPhaseVisibility("inserting", fallback, orderedEls);
     if (fallback) {
-      const state2 = this._multiDragState;
-      if (state2)
-        fallback.style.width = `${state2.dragRect.width}px`;
+      const s = this._multiDragState;
+      if (s)
+        fallback.style.width = `${s.dragRect.width}px`;
     }
     this.buildMultiDragPreview(
       fallback,
@@ -4362,17 +4359,8 @@ var KanbanView = class extends BasesView2 {
       insertFlyParams.forEach((fp) => fp.clone.remove());
       overlay.remove();
     }
-    orderedEls.forEach((el) => {
-      el.style.setProperty("opacity", "1", "important");
-    });
     pendingIds.clear();
-    orderedEls.forEach((el) => {
-      el.style.transition = "";
-      el.removeClass("is-multidrag-slot");
-      el.removeClass("is-multidrag-source");
-    });
     this.clearMultiDragInsertionSlotLayout(slotRoomEls);
-    overlay.remove();
     if (state) {
       state.pendingInsertionRects = void 0;
       state.pendingInsertionRoomIds = void 0;

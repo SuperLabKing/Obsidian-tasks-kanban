@@ -1163,6 +1163,8 @@ class KanbanView extends BasesView {
           ? state.pendingInsertionRects
           : orderedEls.map((el) => this.snapshotRect(el));
       const orderedIds = state?.orderedIds ?? orderedEls.map((el) => el.dataset.id || '');
+
+      // Move room cards to make space (existing cards not part of this drag)
       const slotRoomIds = state?.pendingInsertionRoomIds ?? [];
       const slotRoomRects = state?.pendingInsertionRoomRects ?? [];
       const slotRoomEls = slotRoomIds
@@ -1172,27 +1174,26 @@ class KanbanView extends BasesView {
           el.addClass('is-multidrag-room-card');
           el.dataset.multidragKeepTransformUntilCommit = 'true';
       });
-
-      // === PHASE 1: Position real cards at targets (keep them hidden during fly animation) ===
-      // Move existing room cards to make space
       this.applyMultiDragInsertionSlotLayout(slotRoomEls, slotRoomRects);
-      // Position real cards at target locations
-      this.applyMultiDragInsertionSlotLayout(orderedEls, targetRects);
-      // Hide real cards so fly animation is visible — they'll be revealed after animation
+
+      // DO NOT apply slot layout to orderedEls — keep them at their current (extraction) positions.
+      // We only dim them so the fly clones are visible against the background.
+      // orderedEls have been hidden by the caller via applyMultiDragPhaseVisibility('inserting', ...).
+      // But we need to ensure they don't have is-multidrag-source class (from extraction phase).
       orderedEls.forEach((el) => {
-          el.style.setProperty('opacity', '0', 'important');
-          el.style.setProperty('visibility', 'visible', 'important');
           el.removeClass('is-multidrag-source');
       });
 
-      // === PHASE 2: Animate clones from stack to targets (visual only) ===
+      // === Fly animation: clones depart from stack and fly to target positions ===
       const overlay = document.createElement('div');
       overlay.className = 'kanban-multidrag-overlay';
       document.body.appendChild(overlay);
+
+      // Update fallback visual for the insertion preview
       this.applyMultiDragPhaseVisibility('inserting', fallback, orderedEls);
       if (fallback) {
-          const state2 = this._multiDragState;
-          if (state2) fallback.style.width = `${state2.dragRect.width}px`;
+          const s = this._multiDragState;
+          if (s) fallback.style.width = `${s.dragRect.width}px`;
       }
       this.buildMultiDragPreview(
           fallback,
@@ -1203,8 +1204,8 @@ class KanbanView extends BasesView {
       );
       await this.nextFrame();
 
+      // Build fly param list — start from stack (fallback rect + layer offset), go to target rects
       const pendingIds = new Set(orderedIds);
-      // 收集所有飞行参数 — 统一 rAF 同时驱动
       const DURATION_BASE = 600;
       const insertFlyParams = orderedEls.map((leavingEl, index) => {
           const targetRect = targetRects[index] || this.snapshotRect(leavingEl);
@@ -1234,7 +1235,6 @@ class KanbanView extends BasesView {
       }>;
 
       try {
-          // 统一 rAF loop — 所有卡片同时从堆叠飞向目标
           const insertStartTime = performance.now();
           await new Promise<void>(resolve => {
               const tick = (now: number) => {
@@ -1273,28 +1273,15 @@ class KanbanView extends BasesView {
               requestAnimationFrame(tick);
           });
       } finally {
-          // 无论如何清理飞行克隆体和 overlay
           insertFlyParams.forEach(fp => fp.clone.remove());
           overlay.remove();
       }
 
-      // Reveal real cards now that fly animation is complete
-      orderedEls.forEach((el) => {
-          el.style.setProperty('opacity', '1', 'important');
-      });
-
       pendingIds.clear();
 
-      // === PHASE 3: Cleanup animation artifacts only ===
-      // Keep transforms on orderedEls so cards stay at visual positions.
-      // Visibility styles persist until caller finishes commitMultiDragFinalOrder.
-      orderedEls.forEach((el) => {
-          el.style.transition = '';
-          el.removeClass('is-multidrag-slot');
-          el.removeClass('is-multidrag-source');
-      });
+      // Cleanup: clear transforms/classes on room cards.
+      // orderedEls transforms are managed by caller (clearMultiDragInsertionSlotLayout).
       this.clearMultiDragInsertionSlotLayout(slotRoomEls);
-      overlay.remove();
       if (state) {
           state.pendingInsertionRects = undefined;
           state.pendingInsertionRoomIds = undefined;
