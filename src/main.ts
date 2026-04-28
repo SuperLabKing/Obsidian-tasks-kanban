@@ -2,7 +2,7 @@ import { Plugin, TFile, Modal, Setting, Notice, Menu, App } from "obsidian";
 import * as obsidian from "obsidian";
 import Sortable from "sortablejs";
 import { TaskKanbanSettingTab, PluginSettings, DEFAULT_SETTINGS, MetaTagConfig, GlobalMetaStyle } from "./settings";
-import { applyMultiDragFinalOrderToIds, getMultiDragAnchoredPreviewIds, getMultiDragExtractionLayerMotionProfile, getMultiDragExtractionPreviewIds, getMultiDragFlightDurationMs, getMultiDragLayerMotionProfile, getMultiDragPhaseVisibility, getMultiDragPreviewIds, getMultiDragVisibleDepth, MULTIDRAG_EXTRACTION_STEP_MS, runMultiDragCommitPhases, sanitizeMultiDragCloneClassNames } from "./multidrag-order";
+import { applyMultiDragFinalOrderToIds, getMultiDragAnchoredPreviewIds, getMultiDragExtractionLayerMotionProfile, getMultiDragExtractionPreviewIds, getMultiDragLayerMotionProfile, getMultiDragPhaseVisibility, getMultiDragVisibleDepth, sanitizeMultiDragCloneClassNames } from "./multidrag-order";
 
 const BasesView = (obsidian as any).BasesView;
 
@@ -660,6 +660,8 @@ class KanbanView extends BasesView {
   private _savedProgress: Record<string, number> = {}; // 保存重建前的进度条宽度，用于平滑过渡
   private _multiDragState: MultiDragState | null = null;
   private _suspendRerender: boolean = false;
+  _kanbanEntryOverrides: Record<string, Record<string, any>> | null = null;
+  _kanbanDataIntercepted: boolean = false;
   private _dragSlotEl: HTMLElement | null = null;
   private _dragSlotContainer: HTMLElement | null = null;
   private _multiDragPointerMoveHandler = (evt: PointerEvent) => {
@@ -806,14 +808,22 @@ class KanbanView extends BasesView {
       clone.style.opacity = '1';
       clone.style.transform = '';
       clone.style.filter = 'none';
+      clone.style.overflow = 'hidden';
+      clone.style.boxSizing = 'border-box';
       return clone;
   }
 
   private clearMultiDragVisualState() {
       this.boardEl.querySelectorAll('.kanban-card').forEach((el: Element) => {
           (el as HTMLElement).style.opacity = '';
+          (el as HTMLElement).style.visibility = '';
+          (el as HTMLElement).style.transform = '';
+          (el as HTMLElement).style.transition = '';
+          (el as HTMLElement).style.willChange = '';
+          delete (el as HTMLElement).dataset.multidragKeepTransformUntilCommit;
           (el as HTMLElement).removeClass('is-multidrag-source');
           (el as HTMLElement).removeClass('is-multidrag-slot');
+          (el as HTMLElement).removeClass('is-multidrag-room-card');
       });
       this.boardEl.querySelectorAll('.is-hidden-by-multidrag').forEach((el: Element) => el.classList.remove('is-hidden-by-multidrag'));
       const fallback = document.querySelector('.kanban-card-fallback') as HTMLElement | null;
@@ -845,7 +855,8 @@ class KanbanView extends BasesView {
       });
   }
 
-  private buildMultiDragPreview(fallback: HTMLElement, item: HTMLElement, orderedIds: string[], draggedId: string, previewIds?: string[]) {
+  private buildMultiDragPreview(fallback: HTMLElement | null, item: HTMLElement, orderedIds: string[], draggedId: string, previewIds?: string[]) {
+      if (!fallback) return;
       fallback.addClass('is-multidrag-stack');
       fallback.style.overflow = 'visible';
       fallback.style.pointerEvents = 'none';
@@ -913,50 +924,74 @@ class KanbanView extends BasesView {
       await this.nextFrame();
       const revealedIds = new Set<string>();
       const finalVisibleIds = getMultiDragAnchoredPreviewIds(orderedIds, draggedId);
-      const animations = sources.map(({ sourceEl, rect, id }, index) => (async () => {
-          const clone = this.createFlyClone(sourceEl, rect);
-          clone.style.boxShadow = this.getMultiDragExtractionShadow(0);
-          overlay.appendChild(clone);
-          await this.nextFrame();
-          const nextVisibleIds = getMultiDragAnchoredPreviewIds(orderedIds.filter((candidateId) => candidateId === draggedId || revealedIds.has(candidateId) || candidateId === id), draggedId);
-          const layerIndex = nextVisibleIds.indexOf(id);
+      // 计算所有克隆体的动画参数 — 统一 rAF 同时驱动
+      const DURATION_BASE = 360;
+      const flyParams = sources.map(({ sourceEl, rect, id }, index) => {
+          sourceEl.addClass('is-multidrag-source');
+          const flyClone = this.createFlyClone(sourceEl, rect);
+          flyClone.style.boxShadow = this.getMultiDragExtractionShadow(0);
+          flyClone.style.transitionProperty = 'box-shadow';
+          flyClone.style.transitionDuration = '260ms';
+          overlay.appendChild(flyClone);
           const finalLayerIndex = finalVisibleIds.indexOf(id);
           const profile = getMultiDragExtractionLayerMotionProfile(finalVisibleIds.length, finalLayerIndex === -1 ? finalVisibleIds.length - 1 : finalLayerIndex);
-          const duration = getMultiDragFlightDurationMs(finalVisibleIds.length, finalLayerIndex === -1 ? finalVisibleIds.length - 1 : finalLayerIndex);
-          const animateClone = (elapsed: number) => {
-              const progress = Math.min(1, elapsed / duration);
-              const easedProgress = 1 - Math.pow(1 - progress, 3);
-              const liveTargetRect = this.getMultiDragLiveTargetRect(fallback);
-              const currentLeft = rect.left + (liveTargetRect.left - rect.left) * easedProgress;
-              const currentTop = rect.top + (liveTargetRect.top - rect.top) * easedProgress;
-              const currentWidth = rect.width + (liveTargetRect.width - rect.width) * easedProgress;
-              const currentHeight = rect.height + (liveTargetRect.height - rect.height) * easedProgress;
-              const currentScale = 1 + (profile.scale - 1) * easedProgress;
-              clone.style.transitionDuration = '0ms';
-              clone.style.boxShadow = this.getMultiDragExtractionShadow(easedProgress);
-              clone.style.transform = `translate(${currentLeft - rect.left}px, ${currentTop - rect.top + profile.offsetY * easedProgress}px) scale(${currentScale})`;
-              clone.style.width = `${currentWidth}px`;
-              clone.style.height = `${currentHeight}px`;
+          const targetRect = this._multiDragState?.dragRect;
+          const targetW = targetRect?.width ?? rect.width;
+          const targetH = targetRect?.height ?? rect.height;
+          return {
+              clone: flyClone, sourceEl, id, index,
+              startLeft: rect.left, startTop: rect.top,
+              startWidth: rect.width, startHeight: rect.height,
+              offsetY: profile.offsetY,
+              targetW, targetH,
           };
-          const startedAt = performance.now();
-          const tick = () => {
-              const elapsed = performance.now() - startedAt;
-              animateClone(elapsed);
-              if (elapsed < duration) {
-                  rafId = window.requestAnimationFrame(tick);
+      });
+
+      // 统一 rAF loop — 所有卡片同时运动
+      const startTime = performance.now();
+      await new Promise<void>(resolve => {
+          const tick = (now: number) => {
+              const elapsed = now - startTime;
+              const liveTargetRect = this.getMultiDragLiveTargetRect(fallback);
+              let allDone = true;
+
+              flyParams.forEach(fp => {
+                  const dist = Math.hypot(
+                      liveTargetRect.left - fp.startLeft,
+                      (liveTargetRect.top + fp.offsetY) - fp.startTop
+                  );
+                  const distFactor = Math.max(0.7, Math.min(1.4, dist / 400));
+                  const duration = DURATION_BASE * distFactor;
+                  const rawProgress = Math.min(1, elapsed / duration);
+                  const eased = 1 - Math.pow(1 - rawProgress, 3);
+
+                  const cx = fp.startLeft + (liveTargetRect.left - fp.startLeft) * eased;
+                  const cy = fp.startTop + (liveTargetRect.top + fp.offsetY - fp.startTop) * eased;
+                  const cw = fp.startWidth + (fp.targetW - fp.startWidth) * eased;
+                  const ch = fp.startHeight + (fp.targetH - fp.startHeight) * eased;
+
+                  fp.clone.style.transform = `translate(${cx - fp.startLeft}px, ${cy - fp.startTop}px)`;
+                  fp.clone.style.width = `${cw}px`;
+                  fp.clone.style.height = `${ch}px`;
+                  fp.clone.style.boxShadow = this.getMultiDragExtractionShadow(eased);
+
+                  if (rawProgress < 1) allDone = false;
+              });
+
+              if (allDone) {
+                  resolve();
+              } else {
+                  requestAnimationFrame(tick);
               }
           };
-          animateClone(0);
-          let rafId = window.requestAnimationFrame(tick);
-          sourceEl.addClass('is-multidrag-source');
-          await this.wait(duration);
-          window.cancelAnimationFrame(rafId);
-          animateClone(duration);
-          revealedIds.add(id);
-          this.buildMultiDragPreview(fallback, item, orderedIds, draggedId, getMultiDragAnchoredPreviewIds(orderedIds.filter((candidateId) => candidateId === draggedId || revealedIds.has(candidateId)), draggedId));
-          clone.remove();
-      })());
-      await Promise.all(animations);
+          requestAnimationFrame(tick);
+      });
+
+      // 清理克隆体 + 重建堆叠预览（所有卡片已到达）
+      flyParams.forEach(fp => fp.clone.remove());
+      revealedIds.clear();
+      sources.forEach(({ id }) => revealedIds.add(id));
+      this.buildMultiDragPreview(fallback, item, orderedIds, draggedId, getMultiDragAnchoredPreviewIds(orderedIds.filter((candidateId) => candidateId === draggedId || revealedIds.has(candidateId)), draggedId));
       overlay.remove();
       this.applyMultiDragPhaseVisibility('dragging', fallback, sourceEls);
       item.style.setProperty('opacity', '1', 'important');
@@ -1085,6 +1120,9 @@ class KanbanView extends BasesView {
           const deltaX = targetRect.left - currentRect.left;
           const deltaY = targetRect.top - currentRect.top;
           slotEl.addClass('is-multidrag-slot');
+          if (slotEl.hasClass('is-multidrag-room-card')) {
+              slotEl.style.setProperty('opacity', '1', 'important');
+          }
           slotEl.style.transition = 'transform 260ms cubic-bezier(.22,1,.36,1)';
           slotEl.style.willChange = 'transform';
           slotEl.style.transform = `translate(${deltaX}px, ${deltaY}px)`;
@@ -1093,7 +1131,15 @@ class KanbanView extends BasesView {
 
   private clearMultiDragInsertionSlotLayout(slotEls: HTMLElement[]) {
       slotEls.forEach((slotEl) => {
+          const preserveTransformUntilCommit = slotEl.dataset.multidragKeepTransformUntilCommit === 'true';
           slotEl.removeClass('is-multidrag-slot');
+          if (preserveTransformUntilCommit) {
+              slotEl.dataset.multidragKeepTransformUntilCommit = 'false';
+              slotEl.style.transition = '';
+              return;
+          }
+          slotEl.removeClass('is-multidrag-room-card');
+          delete slotEl.dataset.multidragKeepTransformUntilCommit;
           slotEl.style.transform = '';
           slotEl.style.transition = '';
           slotEl.style.willChange = '';
@@ -1120,10 +1166,32 @@ class KanbanView extends BasesView {
       const slotRoomEls = slotRoomIds
           .map((id) => this.boardEl.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`) as HTMLElement | null)
           .filter(Boolean) as HTMLElement[];
+      slotRoomEls.forEach((el) => {
+          el.addClass('is-multidrag-room-card');
+          el.dataset.multidragKeepTransformUntilCommit = 'true';
+      });
+
+      // === PHASE 1: Immediately show real cards at their target positions ===
+      // Move existing room cards to make space
+      this.applyMultiDragInsertionSlotLayout(slotRoomEls, slotRoomRects);
+      // Position real cards at target locations
+      this.applyMultiDragInsertionSlotLayout(orderedEls, targetRects);
+      // Force real cards visible — no animation hiding
+      orderedEls.forEach((el) => {
+          el.style.setProperty('opacity', '1', 'important');
+          el.style.setProperty('visibility', 'visible', 'important');
+          el.removeClass('is-multidrag-source');
+      });
+
+      // === PHASE 2: Animate clones from stack to targets (visual only) ===
       const overlay = document.createElement('div');
       overlay.className = 'kanban-multidrag-overlay';
       document.body.appendChild(overlay);
       this.applyMultiDragPhaseVisibility('inserting', fallback, orderedEls);
+      if (fallback) {
+          const state2 = this._multiDragState;
+          if (state2) fallback.style.width = `${state2.dragRect.width}px`;
+      }
       this.buildMultiDragPreview(
           fallback,
           item,
@@ -1132,67 +1200,89 @@ class KanbanView extends BasesView {
           getMultiDragAnchoredPreviewIds(orderedIds, item.dataset.id || ''),
       );
       await this.nextFrame();
-      this.applyMultiDragInsertionSlotLayout(slotRoomEls, slotRoomRects);
-      this.applyMultiDragInsertionSlotLayout(orderedEls, targetRects);
-      await this.nextFrame();
+
       const pendingIds = new Set(orderedIds);
-      const animations = orderedEls.map((leavingEl, index) => (async () => {
-          const visibleIds = getMultiDragAnchoredPreviewIds(orderedIds.filter((candidateId) => pendingIds.has(candidateId)), item.dataset.id || '');
+      // 收集所有飞行参数 — 统一 rAF 同时驱动
+      const DURATION_BASE = 360;
+      const insertFlyParams = orderedEls.map((leavingEl, index) => {
           const targetRect = targetRects[index] || this.snapshotRect(leavingEl);
-          this.buildMultiDragPreview(
-              fallback,
-              item,
-              orderedIds,
-              item.dataset.id || '',
-              visibleIds,
-          );
+          const visibleIds = getMultiDragAnchoredPreviewIds(orderedIds.filter((candidateId) => pendingIds.has(candidateId)), item.dataset.id || '');
           const baseRect = fallback ? this.snapshotRect(fallback) : state?.dragRect;
-          if (!baseRect) return;
+          if (!baseRect) return null;
           const layerIndex = visibleIds.indexOf(leavingEl.dataset.id || '');
           const profile = getMultiDragLayerMotionProfile(visibleIds.length, layerIndex === -1 ? visibleIds.length - 1 : layerIndex);
-          const duration = getMultiDragFlightDurationMs(visibleIds.length, layerIndex === -1 ? visibleIds.length - 1 : layerIndex);
-          const startRect = {
+          const startRect: RectSnapshot = {
               left: baseRect.left,
               top: baseRect.top + profile.offsetY,
               width: baseRect.width,
               height: baseRect.height,
           };
-          const clone = this.createFlyClone(leavingEl, startRect);
-          clone.style.boxShadow = this.getMultiDragInsertionShadow(0);
-          clone.style.transitionDuration = `${duration}ms`;
-          clone.style.transform = `scale(${profile.scale})`;
-          overlay.appendChild(clone);
-          await this.nextFrame();
-          const animateShadow = (elapsed: number) => {
-              const progress = Math.min(1, elapsed / duration);
-              const easedProgress = 1 - Math.pow(1 - progress, 3);
-              clone.style.boxShadow = this.getMultiDragInsertionShadow(easedProgress);
-              if (elapsed < duration) {
-                  shadowRafId = window.requestAnimationFrame(() => animateShadow(performance.now() - startedAt));
+          const flyClone = this.createFlyClone(leavingEl, startRect);
+          flyClone.style.boxShadow = this.getMultiDragInsertionShadow(0);
+          flyClone.style.transitionProperty = 'box-shadow';
+          flyClone.style.transitionDuration = '260ms';
+          flyClone.style.transform = 'translate(0px, 0px)';
+          overlay.appendChild(flyClone);
+          return {
+              clone: flyClone, leavingEl, index, startRect, targetRect, layerIndex,
+          };
+      }).filter(Boolean) as Array<{
+          clone: HTMLElement; leavingEl: HTMLElement; index: number;
+          startRect: RectSnapshot; targetRect: RectSnapshot; layerIndex: number;
+      }>;
+
+      // 统一 rAF loop — 所有卡片同时从堆叠飞向目标
+      const insertStartTime = performance.now();
+      await new Promise<void>(resolve => {
+          const tick = (now: number) => {
+              const elapsed = now - insertStartTime;
+              let allDone = true;
+
+              insertFlyParams.forEach(fp => {
+                  const dist = Math.hypot(
+                      fp.targetRect.left - fp.startRect.left,
+                      fp.targetRect.top - fp.startRect.top
+                  );
+                  const distFactor = Math.max(0.7, Math.min(1.5, dist / 350));
+                  const duration = DURATION_BASE * distFactor;
+                  const rawProgress = Math.min(1, elapsed / duration);
+                  const eased = 1 - Math.pow(1 - rawProgress, 3);
+
+                  const cx = fp.startRect.left + (fp.targetRect.left - fp.startRect.left) * eased;
+                  const cy = fp.startRect.top + (fp.targetRect.top - fp.startRect.top) * eased;
+                  const cw = fp.startRect.width + (fp.targetRect.width - fp.startRect.width) * eased;
+                  const ch = fp.startRect.height + (fp.targetRect.height - fp.startRect.height) * eased;
+
+                  fp.clone.style.transform = `translate(${cx - fp.startRect.left}px, ${cy - fp.startRect.top}px)`;
+                  fp.clone.style.width = `${cw}px`;
+                  fp.clone.style.height = `${ch}px`;
+                  fp.clone.style.boxShadow = this.getMultiDragInsertionShadow(eased);
+
+                  if (rawProgress < 1) allDone = false;
+              });
+
+              if (allDone) {
+                  resolve();
+              } else {
+                  requestAnimationFrame(tick);
               }
           };
-          const startedAt = performance.now();
-          let shadowRafId = window.requestAnimationFrame(() => animateShadow(performance.now() - startedAt));
-          clone.style.transform = `translate(${targetRect.left - startRect.left}px, ${targetRect.top - startRect.top}px) scale(1)`;
-          clone.style.width = `${targetRect.width}px`;
-          clone.style.height = `${targetRect.height}px`;
-          clone.style.opacity = '1';
-          await this.wait(duration);
-          window.cancelAnimationFrame(shadowRafId);
-          clone.style.boxShadow = this.getMultiDragInsertionShadow(1);
-          pendingIds.delete(leavingEl.dataset.id || '');
-          this.buildMultiDragPreview(
-              fallback,
-              item,
-              orderedIds,
-              item.dataset.id || '',
-              getMultiDragAnchoredPreviewIds(orderedIds.filter((candidateId) => pendingIds.has(candidateId)), item.dataset.id || ''),
-          );
-          clone.remove();
-      })());
-      await Promise.all(animations);
+          requestAnimationFrame(tick);
+      });
+
+      // 清理
+      pendingIds.clear();
+      insertFlyParams.forEach(fp => fp.clone.remove());
+
+      // === PHASE 3: Cleanup animation artifacts only ===
+      // Keep transforms on orderedEls so cards stay at visual positions.
+      // Visibility styles persist until caller finishes commitMultiDragFinalOrder.
+      orderedEls.forEach((el) => {
+          el.style.transition = '';
+          el.removeClass('is-multidrag-slot');
+          el.removeClass('is-multidrag-source');
+      });
       this.clearMultiDragInsertionSlotLayout(slotRoomEls);
-      this.clearMultiDragInsertionSlotLayout(orderedEls);
       overlay.remove();
       if (state) {
           state.pendingInsertionRects = undefined;
@@ -1244,6 +1334,37 @@ class KanbanView extends BasesView {
                 e.preventDefault();
             }
         });
+
+        // Intercept this.data to apply entry overrides during rebuilds
+        if (this._kanbanEntryOverrides && !this._kanbanDataIntercepted) {
+            this._kanbanDataIntercepted = true;
+            const self = this;
+            const origDescriptor = Object.getOwnPropertyDescriptor(this, 'data')
+                || Object.getOwnPropertyDescriptor(Object.getPrototypeOf(this), 'data');
+            const origGetter = origDescriptor?.get;
+            Object.defineProperty(this, 'data', {
+                configurable: true,
+                get() {
+                    const raw = origGetter ? origGetter.call(self) : (self as any)._rawKanbanData;
+                    if (raw?.data && self._kanbanEntryOverrides) {
+                        raw.data.forEach((entry: any) => {
+                            const path = entry.file?.path;
+                            if (!path || !self._kanbanEntryOverrides![path]) return;
+                            if (!entry._kanbanOriginalGetValue) {
+                                entry._kanbanOriginalGetValue = entry.getValue.bind(entry);
+                                entry.getValue = function(prop: string) {
+                                    if (entry._kanbanOverrides && prop in entry._kanbanOverrides) return entry._kanbanOverrides[prop];
+                                    return entry._kanbanOriginalGetValue(prop);
+                                };
+                            }
+                            entry._kanbanOverrides = { ...entry._kanbanOverrides, ...self._kanbanEntryOverrides![path] };
+                        });
+                    }
+                    return raw;
+                },
+                set(v: any) { (self as any)._rawKanbanData = v; },
+            });
+        }
 
         const entries = (this as any).data?.data || [];
         // ✅ v1.0.3: 优先从视图组/子视图设置读取 groupByProperty，不依赖 bases config（会被框架重置）
@@ -1310,6 +1431,7 @@ class KanbanView extends BasesView {
 
         const rewriteColumnOrder = async (cardsArr: HTMLElement[], targetCol: string, isPinnedZone: boolean, skipFrontmatterUpdate: boolean = false) => {
             const targetYamlProp = isPinnedZone ? yamlPinnedOrderProp : yamlOrderProp;
+            const clearedYamlProp = isPinnedZone ? yamlOrderProp : yamlPinnedOrderProp;
             const dir = (settings.columnSortDir && settings.columnSortDir[targetCol]) || 'asc';
             const total = cardsArr.length;
 
@@ -1322,11 +1444,29 @@ class KanbanView extends BasesView {
                     const vc = settings.virtualCards.find((v:any) => v.id === el.dataset.id);
                     if (vc) { if (isPinnedZone) vc.pinnedOrder = finalStr; else vc.order = finalStr; }
                 } else {
+                    const id = el.dataset.id!;
+                    const orderOverrides: Record<string, any> = {
+                        [targetYamlProp]: finalStr,
+                        [clearedYamlProp]: undefined,
+                    };
+                    const entry = entries.find((e: any) => e.file?.path === id);
+                    if (entry) {
+                        if (!entry._kanbanOverrides) entry._kanbanOverrides = {};
+                        entry._kanbanOverrides = { ...entry._kanbanOverrides, ...orderOverrides };
+                    }
+                    if (!this._kanbanEntryOverrides) this._kanbanEntryOverrides = {};
+                    this._kanbanEntryOverrides[id] = {
+                        ...(this._kanbanEntryOverrides[id] || {}),
+                        ...orderOverrides,
+                    };
                     // 只有开启项目环节开关的视图才更新 frontmatter 中的环节属性
                     // 添加 skipFrontmatterUpdate 参数，允许跳过 frontmatter 更新以避免闪烁
                     if (isGlobalAuto && !skipFrontmatterUpdate) {
-                        const f = this.app.vault.getAbstractFileByPath(el.dataset.id!);
-                        if (f instanceof TFile) await this.app.fileManager.processFrontMatter(f, fm => { fm[targetYamlProp] = [finalStr]; });
+                        const f = this.app.vault.getAbstractFileByPath(id);
+                        if (f instanceof TFile) await this.app.fileManager.processFrontMatter(f, fm => {
+                            fm[targetYamlProp] = [finalStr];
+                            delete fm[clearedYamlProp];
+                        });
                     }
                 }
             }
@@ -1343,13 +1483,15 @@ class KanbanView extends BasesView {
             const fill = columnEl.querySelector('.kanban-column-progress-fill') as HTMLElement;
             if (fill) {
                 const targetPct = allCards.length === 0 ? 0 : (comp / allCards.length * 100);
-                // 捕获当前真实渲染位置（动画可能还在进行中），作为过渡起点
                 const bg = fill.parentElement as HTMLElement;
                 const bgW = bg?.getBoundingClientRect().width || 0;
                 const currentPct = bgW > 0
                     ? (fill.getBoundingClientRect().width / bgW * 100)
                     : (parseFloat(fill.style.width) || 0);
-                // 以真实渲染位置为起点，强制重排后启动新动画
+                if (Math.abs(currentPct - targetPct) < 0.1) {
+                    fill.style.width = `${targetPct.toFixed(1)}%`;
+                    return;
+                }
                 fill.style.transition = 'none';
                 fill.style.width = `${currentPct.toFixed(1)}%`;
                 void fill.offsetWidth;
@@ -2075,8 +2217,19 @@ class KanbanView extends BasesView {
                     const activeIds = isMultiDrag ? (this._multiDragState?.orderedIds || Array.from(this.selectedCards)) : [draggedId];
                     let settingsNeedSave = false;
 
-                    let finalOrderedEls: HTMLElement[] = [];
-
+                    const entries = (this as any).data?.data || [];
+                    const syncMovedCardVisualState = () => {
+                        for (const id of activeIds) {
+                            const el = this.boardEl.querySelector(`.kanban-card[data-id="${CSS.escape(id as string)}"]`) as HTMLElement | null;
+                            if (!el) continue;
+                            if (isToPinned && !isFromPinned) el.addClass("is-pinned");
+                            else if (!isToPinned && isFromPinned) el.removeClass("is-pinned");
+                            if (isProgressSync && yamlProgProp) {
+                                if (toColName === progCompVal) el.addClass("is-completed");
+                                else el.removeClass("is-completed");
+                            }
+                        }
+                    };
                     const syncMovedCards = async () => {
                         for (const id of activeIds) {
                             const el = this.boardEl.querySelector(`.kanban-card[data-id="${CSS.escape(id as string)}"]`) as HTMLElement;
@@ -2115,63 +2268,110 @@ class KanbanView extends BasesView {
                                             fm[yamlProgProp] = [toColName];
                                         }
                                     });
+                                    // Monkey-patch entry.getValue so any onDataUpdated rebuild reads correct column
+                                    const entry = entries.find((e: any) => e.file?.path === id);
+                                    if (entry && entry.getValue && !entry._kanbanOriginalGetValue) {
+                                        entry._kanbanOriginalGetValue = entry.getValue.bind(entry);
+                                        entry.getValue = function(prop: string) {
+                                            if (entry._kanbanOverrides && prop in entry._kanbanOverrides) return entry._kanbanOverrides[prop];
+                                            return entry._kanbanOriginalGetValue(prop);
+                                        }.bind(entry);
+                                    }
+                                    if (entry) {
+                                        if (!entry._kanbanOverrides) entry._kanbanOverrides = {};
+                                        entry._kanbanOverrides[groupByProp] = toColName;
+                                        if (isToPinned) {
+                                            entry._kanbanOverrides[pinnedProp] = true;
+                                            entry._kanbanOverrides[yamlOrderProp] = undefined;
+                                        } else if (isFromPinned) {
+                                            entry._kanbanOverrides[pinnedProp] = false;
+                                            entry._kanbanOverrides[yamlPinnedOrderProp] = undefined;
+                                        }
+                                    }
+                                    // Also store in view-level overrides for Object.defineProperty interception
+                                    if (!this._kanbanEntryOverrides) this._kanbanEntryOverrides = {};
+                                    const overrides: Record<string, any> = { [groupByProp]: toColName };
+                                    if (isToPinned) {
+                                        overrides[pinnedProp] = true;
+                                        overrides[yamlOrderProp] = undefined;
+                                    } else if (isFromPinned) {
+                                        overrides[pinnedProp] = false;
+                                        overrides[yamlPinnedOrderProp] = undefined;
+                                    }
+                                    this._kanbanEntryOverrides[id as string] = {
+                                        ...(this._kanbanEntryOverrides[id as string] || {}),
+                                        ...overrides,
+                                    };
                                 }
                             }
                         }
                     };
 
-                    updateProgress(evt.from.dataset.colId);
-                    if (evt.from !== evt.to) updateProgress(evt.to.dataset.colId);
-
                     try {
-                        await runMultiDragCommitPhases({
-                            setSuspended: (value) => {
-                                this._suspendRerender = value;
-                            },
-                            syncMovedCards,
-                            playInsertion: async () => {
-                                if (isMultiDrag) {
-                                    finalOrderedEls = this.applyMultiDragFinalOrder(
-                                        evt.to as HTMLElement,
-                                        activeIds as string[],
-                                        evt.item as HTMLElement,
-                                    );
-                                    if (this._multiDragState && finalOrderedEls.length > 0) {
-                                        this._multiDragState.pendingInsertionRects = this.measureMultiDragTargetRects(
-                                            evt.to as HTMLElement,
-                                            finalOrderedEls,
-                                            evt.item as HTMLElement,
-                                        );
-                                        const roomLayout = this.measureMultiDragInsertionRoomLayout(
-                                            evt.to as HTMLElement,
-                                            activeIds as string[],
-                                            evt.item as HTMLElement,
-                                        );
-                                        this._multiDragState.pendingInsertionRoomIds = roomLayout.ids;
-                                        this._multiDragState.pendingInsertionRoomRects = roomLayout.rects;
-                                    }
+                        this._suspendRerender = true;
+                        // Move all selected cards to target column in DOM first so animation and progress respond immediately
+                        if (isMultiDrag) {
+                            // Insert cards in order around the dragged card (SortableJS already placed it at drop position)
+                            let prevInserted: HTMLElement | null = null;
+                            for (const id of activeIds) {
+                                if (id === draggedId) {
+                                    prevInserted = evt.item;
+                                    continue;
                                 }
-                                if (isMultiDrag && finalOrderedEls.length > 0) {
-                                    await this.playMultiDragInsertion(fallback, evt.item as HTMLElement, finalOrderedEls);
-                                    finalOrderedEls = this.applyMultiDragFinalOrder(evt.to as HTMLElement, activeIds as string[], evt.item as HTMLElement);
-                                    this.commitMultiDragFinalOrder(evt.to as HTMLElement, activeIds as string[], evt.item as HTMLElement);
+                                const el = this.boardEl.querySelector(`.kanban-card[data-id="${CSS.escape(id as string)}"]`) as HTMLElement | null;
+                                if (!el) continue;
+                                if (prevInserted && prevInserted.parentElement === evt.to) {
+                                    const nextSib = prevInserted.nextElementSibling as HTMLElement | null;
+                                    if (nextSib) evt.to.insertBefore(el, nextSib);
+                                    else evt.to.appendChild(el);
+                                } else {
+                                    evt.to.appendChild(el);
                                 }
-                            },
-                            rewriteTargetOrder: async () => {
-                                const siblingEls = Array.from(evt.to.querySelectorAll('.kanban-card')) as HTMLElement[];
-                                await rewriteColumnOrder(siblingEls, toColName, isToPinned, false);
-                            },
-                            rewriteSourceOrder: async () => {
-                                if (isGlobalAuto && evt.from !== evt.to) {
-                                    const fromSiblingEls = Array.from(evt.from.querySelectorAll('.kanban-card')) as HTMLElement[];
-                                    await rewriteColumnOrder(fromSiblingEls, evt.from.dataset.colId!, isFromPinned, false);
+                                prevInserted = el;
+                            }
+                        }
+                        syncMovedCardVisualState();
+                        if (evt.from !== evt.to) {
+                            updateProgress(evt.from.dataset.colId);
+                            updateProgress(evt.to.dataset.colId);
+                        } else {
+                            updateProgress(evt.from.dataset.colId);
+                        }
+                        // Play divergence animation (clones fly from stack to target positions)
+                        if (isMultiDrag) {
+                            const orderedEls = this.applyMultiDragFinalOrder(evt.to as HTMLElement, activeIds as string[], evt.item as HTMLElement);
+                            let slotRoomEls: HTMLElement[] = [];
+                            if (orderedEls.length > 0) {
+                                if (this._multiDragState) {
+                                    this._multiDragState.pendingInsertionRects = this.measureMultiDragTargetRects(evt.to as HTMLElement, orderedEls, evt.item as HTMLElement);
+                                    const roomLayout = this.measureMultiDragInsertionRoomLayout(evt.to as HTMLElement, activeIds as string[], evt.item as HTMLElement);
+                                    this._multiDragState.pendingInsertionRoomIds = roomLayout.ids;
+                                    this._multiDragState.pendingInsertionRoomRects = roomLayout.rects;
+                                    slotRoomEls = roomLayout.ids
+                                        .map((id) => this.boardEl.querySelector(`.kanban-card[data-id="${CSS.escape(id)}"]`) as HTMLElement | null)
+                                        .filter(Boolean) as HTMLElement[];
                                 }
-                            },
-                            persistSettings: async () => {
-                                if (settingsNeedSave) await this.plugin.saveSettings(false);
-                            },
-                        });
+                                await this.playMultiDragInsertion(fallback, evt.item as HTMLElement, orderedEls);
+                                this.commitMultiDragFinalOrder(evt.to as HTMLElement, activeIds as string[], evt.item as HTMLElement);
+                                this.clearMultiDragInsertionSlotLayout(orderedEls);
+                                this.clearMultiDragInsertionSlotLayout(slotRoomEls);
+                                orderedEls.forEach((el) => {
+                                    el.style.visibility = '';
+                                });
+                            }
+                        }
+                        // Update YAML frontmatter and in-memory entry data after immediate DOM feedback
+                        await syncMovedCards();
+                        // Rewrite order for target column cards
+                        const siblingEls = Array.from(evt.to.querySelectorAll('.kanban-card')) as HTMLElement[];
+                        await rewriteColumnOrder(siblingEls, toColName, isToPinned, false);
+                        if (isGlobalAuto && evt.from !== evt.to) {
+                            const fromSiblingEls = Array.from(evt.from.querySelectorAll('.kanban-card')) as HTMLElement[];
+                            await rewriteColumnOrder(fromSiblingEls, evt.from.dataset.colId!, isFromPinned, false);
+                        }
+                        if (settingsNeedSave) await this.plugin.saveSettings(false);
                     } finally {
+                        this._suspendRerender = false;
                         document.removeEventListener('pointermove', this._multiDragPointerMoveHandler, true);
                         this.boardEl.removeClass("is-dragging-card");
                         this.clearMultiDragVisualState();
@@ -2528,13 +2728,6 @@ export default class TaskKanbanPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
-
-    const debugVaultName = this.app.vault.getName();
-    console.log("[bases-kanban-view] debug bundle loaded", {
-      vault: debugVaultName,
-      version: "1.1.0-alpha.2-debug-load-marker",
-    });
-    new Notice(`bases-kanban-view debug loaded: ${debugVaultName}`, 6000);
 
     // ✅ v1.0.3: 初始化/迁移视图组配置
     if (!this.settings.viewGroups || this.settings.viewGroups.length === 0) {
